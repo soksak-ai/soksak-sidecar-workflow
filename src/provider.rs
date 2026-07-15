@@ -254,9 +254,16 @@ fn runs_dir() -> Option<std::path::PathBuf> {
 }
 
 fn ensure_regular_directory(path: &std::path::Path) -> std::io::Result<()> {
+    use std::path::Component;
     let mut cursor = std::path::PathBuf::new();
     for component in path.components() {
         cursor.push(component.as_os_str());
+        // Prefixes (e.g. a Windows `\\?\C:` verbatim drive) and the filesystem
+        // root are structural anchors, not directories to validate or create;
+        // statting them on their own is meaningless and errors on Windows.
+        if matches!(component, Component::Prefix(_) | Component::RootDir) {
+            continue;
+        }
         match std::fs::symlink_metadata(&cursor) {
             Ok(metadata) if metadata.file_type().is_dir() => {}
             Ok(_) => {
