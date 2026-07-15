@@ -91,10 +91,12 @@ test("GitHub Actions are SHA-pinned and never publish to a package registry", ()
   }
   assert.doesNotMatch(workflows, /cargo publish|npm publish|crates\.io/);
   const release = read(".github/workflows/release.yml");
-  assert.match(release, /tags:\s*\["v\*"\]/);
+  assert.match(release, /on:\n\s*workflow_dispatch:/);
+  assert.doesNotMatch(release, /tags:\s*\[/);
+  assert.match(release, /if: github\.ref == 'refs\/heads\/main'/);
   assert.match(release, /actions\/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1/);
-  assert.match(release, /client-id:\s*\$\{\{ vars\.SOKSAK_RELEASE_APP_CLIENT_ID \}\}/);
-  assert.match(release, /private-key:\s*\$\{\{ secrets\.SOKSAK_RELEASE_APP_PRIVATE_KEY \}\}/);
+  assert.match(release, /client-id:\s*\$\{\{ vars\.SOKSAK_RELEASE_CLIENT_ID \}\}/);
+  assert.match(release, /private-key:\s*\$\{\{ secrets\.SOKSAK_RELEASE_PRIVATE_KEY \}\}/);
   assert.match(release, /permission-administration:\s*read/);
   assert.match(release, /permission-contents:\s*write/);
   assert.match(release, /SOKSAK_RELEASE_TOKEN:\s*\$\{\{ steps\.release-token\.outputs\.token \}\}/);
