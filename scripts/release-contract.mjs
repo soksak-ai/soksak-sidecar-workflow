@@ -141,7 +141,12 @@ export function readRegularFile(input) {
   const fd = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
   try {
     const after = fs.fstatSync(fd);
-    if (!after.isFile() || before.dev !== after.dev || before.ino !== after.ino) {
+    // Match the opened handle to the lstat'd file by inode only. On Windows,
+    // lstat reports dev 0 while fstat reports the real volume id, so a dev
+    // comparison always fails there; the inode is stable across lstat/fstat on
+    // every OS and still changes when the file is swapped under the path
+    // (measured on Windows, Linux, and macOS).
+    if (!after.isFile() || before.ino !== after.ino) {
       throw new Error(`regular file changed while opening: ${absolute}`);
     }
     return fs.readFileSync(fd);
