@@ -51,7 +51,10 @@ function openedBytes(absolute, before) {
   const fd = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
   try {
     const after = fs.fstatSync(fd);
-    if (!after.isFile() || before.dev !== after.dev || before.ino !== after.ino) throw new Error(`archive input changed while opening: ${absolute}`);
+    // Inode-only identity: Windows lstat reports dev 0 while fstat reports the
+    // real volume, so a dev comparison always fails there; the inode is stable
+    // across lstat/fstat on every OS and still changes when the file is swapped.
+    if (!after.isFile() || before.ino !== after.ino) throw new Error(`archive input changed while opening: ${absolute}`);
     return fs.readFileSync(fd);
   } finally {
     fs.closeSync(fd);
