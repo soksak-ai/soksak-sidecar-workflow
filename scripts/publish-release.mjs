@@ -38,7 +38,7 @@ function gh(args, { allowMissing = false } = {}) {
 const viewArgs = ["release", "view", TAG, "--repo", options.repository, "--json", "isDraft,targetCommitish,assets"];
 let view = gh(viewArgs, { allowMissing: true });
 if (view.status !== 0) {
-  gh(["release", "create", TAG, "--repo", options.repository, "--draft", "--verify-tag", "--target", options.commit, "--title", TAG]);
+  gh(["release", "create", TAG, "--repo", options.repository, "--draft", "--target", options.commit, "--title", TAG]);
   view = gh(viewArgs);
 }
 let state = JSON.parse(view.stdout);
