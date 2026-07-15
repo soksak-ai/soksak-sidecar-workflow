@@ -80,6 +80,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22.12.0"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: "10.30.3"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: sidecar-*
@@ -94,8 +97,8 @@ jobs:
       - name: Build the exact public validator without links
         working-directory: .dependency/soksak-spec
         run: |
-          corepack pnpm --config.node-linker=hoisted --config.symlink=false install --frozen-lockfile
-          corepack pnpm build
+          pnpm --config.node-linker=hoisted --config.symlink=false install --frozen-lockfile
+          pnpm build
           test -z "$(find . -type l -print -quit)"
       - run: node scripts/validate-with-spec.mjs --spec-root .dependency/soksak-spec --release-dir dist/release
       - run: node scripts/assemble-publish.mjs --artifacts dist/artifacts --release dist/release --out dist/publish
