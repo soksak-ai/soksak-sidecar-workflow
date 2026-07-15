@@ -1,11 +1,10 @@
 name: release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 permissions:
@@ -13,7 +12,10 @@ permissions:
 
 jobs:
   context:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -23,7 +25,8 @@ jobs:
         with:
           toolchain: "1.96.0"
           components: rustfmt
-      - run: node scripts/release-context.mjs
+      - id: identity
+        run: node scripts/release-context.mjs
       - run: node scripts/gate.mjs
 
   matrix:
@@ -40,7 +43,7 @@ jobs:
         run: node scripts/release-matrix.mjs
 
   build:
-    needs: matrix
+    needs: [context, matrix]
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
@@ -57,7 +60,7 @@ jobs:
       - run: cargo test --locked --target "${{ matrix.target }}"
       - run: cargo build --locked --release --target "${{ matrix.target }}" --bin soksak-sidecar-workflow
       - run: node scripts/stage-release.mjs --target "${{ matrix.target }}" --binary "target/${{ matrix.target }}/release/soksak-sidecar-workflow${{ contains(matrix.target, 'windows') && '.exe' || '' }}" --out dist/stage
-      - run: node scripts/build-artifact.mjs --target "${{ matrix.target }}" --tag "${{ github.ref_name }}" --input dist/stage --out dist/artifact
+      - run: node scripts/build-artifact.mjs --target "${{ matrix.target }}" --tag "${{ needs.context.outputs.tag }}" --input dist/stage --out dist/artifact
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sidecar-${{ matrix.target }}
@@ -82,7 +85,7 @@ jobs:
           pattern: sidecar-*
           path: dist/artifacts
           merge-multiple: true
-      - run: node scripts/build-release.mjs --commit "${{ github.sha }}" --tag "${{ github.ref_name }}" --artifacts dist/artifacts --out dist/release
+      - run: node scripts/build-release.mjs --commit "${{ github.sha }}" --tag "${{ needs.context.outputs.tag }}" --artifacts dist/artifacts --out dist/release
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: soksak-ai/soksak-spec
@@ -100,8 +103,8 @@ jobs:
         id: release-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
         with:
-          client-id: ${{ vars.SOKSAK_RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SOKSAK_RELEASE_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.SOKSAK_RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.SOKSAK_RELEASE_PRIVATE_KEY }}
           permission-administration: read
           permission-contents: write
       - run: node scripts/publish-release.mjs --repository "${{ github.repository }}" --commit "${{ github.sha }}" --assets dist/publish
