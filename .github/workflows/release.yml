@@ -15,6 +15,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     outputs:
+      id: ${{ steps.identity.outputs.id }}
       tag: ${{ steps.identity.outputs.tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -63,7 +64,7 @@ jobs:
       - run: node scripts/build-artifact.mjs --target "${{ matrix.target }}" --tag "${{ needs.context.outputs.tag }}" --input dist/stage --out dist/artifact
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sidecar-${{ matrix.target }}
+          name: ${{ needs.context.outputs.id }}-${{ matrix.target }}
           path: |
             dist/artifact/*.tar.gz
             dist/artifact/artifact-${{ matrix.target }}.json
@@ -85,7 +86,7 @@ jobs:
           version: "10.30.3"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: sidecar-*
+          pattern: ${{ needs.context.outputs.id }}-*
           path: dist/artifacts
           merge-multiple: true
       - run: node scripts/build-release.mjs --commit "${{ github.sha }}" --tag "${{ needs.context.outputs.tag }}" --artifacts dist/artifacts --out dist/release
