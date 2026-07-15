@@ -1,0 +1,500 @@
+{
+  "spec": "workflow-doc@0.0.1",
+  "meta": {
+    "name": "draft",
+    "description": "DRAFT 워크플로 — 아이디어(directive)를 백로그 덩어리로 구체화. exec-stage 가 stage(generate/hunt/classify/audit) 별로 호출. generate=요건 발굴·평탄 발행, 항목 검증=exec-one, 누락=hunt, 분류=classify(완성 집합), 완결 인증=audit."
+  },
+  "args": {
+    "directive": {
+      "from": [
+        "directive",
+        "DIRECTIVE",
+        "IDEA"
+      ],
+      "default": "방문자가 방문을 하면 병원을 생성할수있다. 병원을 생성하고 약 보관함(오프라인)를 온라인 약 보관함(캐니스터)를 생성을 하고 오프라인의 약갯수와 캐니스터의 약 보관상태를 동기화 시키고 관리할수있게 하는 서비스다. 하나의 캐니스터에는 한 종류의 약이 들어간다. 약은 같은 약이라도 제형, 용량, 용법 등에 따라서도 다른 약으로 취급한다. 쪼개쓰는 약도 존재하므로 단위를 1/2 1/4 1/12까지 설정가능하도록 하되 기본은 1이다. 캐니스터(약 보관함)를 생성하면 기본 100개의 슬롯이 세팅된다. 수정하면 200개 슬롯까지 가능하다. 캐니스터에 들어가지 못하는 약은 창고에 있고 창고도 연결가능해야한다. 같은 약이 창고에 있을수도 캐니스터에 나눠져있을수도 있다. 재고 숫자는 수기로 세어서 업데이트한다. 재고를 아는게 목적이다. 캐니스터의 슬롯에 재고가 들어가는 개념이다(슬롯은 약을 담는 위치/약통일 뿐, 슬롯 수가 재고 수량을 제한하지 않는다). 캐니스터 상세보기 화면에서 해당 약의 다른 캐니스터 슬롯위치와 창고위치등에 있는 같은약도 일목요연하게 볼수있다. 캐니스터명은 수정 가능하다. 병원을 여러개 만들수있는건 유료 구독자다(회원 등급/권한 존재). 구매기능이 있으나 결제는 안한다. 권한자만 구매요청 가능, 자기 거래처(약 도매상)를 스스로 등록한다(전화번호/이름). 캐니스터에 약 세팅 후 구매페이지에서 세팅한 약들이 엑셀리스트처럼 보이고 수량 조절·약판매자 연결하면 거래처와 약품이 연결된다. 약은 정가/비급여가 있다. 비급여는 구매자(병원)가 판매자가 병원에 공급가로 정하므로 가격을 모름(거래를 한번하면 그 가격으로 재구매할수있으므로 결국엔 정확한 가격을 알게됨). 거래처로 구매내역 전송→푸시/알림톡 발송→판매자가 주문확인·패키지변경(10개*10개 또는 100개*1개)·약값 보정 후 구매자에게 컨펌 요청. 판매자가 대체 의약품 제안·품절 처리 가능. 구매자는 변동내역·개별가격·총가격 확인 후 승인/취소. 설정에서 대체의약품을 허가하지 않을수있고 품절의경우 주문이 취소된다. 승인시 판매자에 푸시/알림톡→배송·배송번호 입력 또는 자체배송 선택·승인→구매자 대기. 재고 수정시 누가 어떤 이유로 수정했는지 대장(문서)로 확인, 권한자 승인 기능(감사 증빙), PDF 다운로드. SaaS 시스템, MVP 넘어 엔터프라이즈급."
+    },
+    "parentDraftId": {
+      "from": [
+        "parentDraftId"
+      ],
+      "default": null
+    }
+  },
+  "values": {
+    "PENDING": "검수전",
+    "COMMON": "SHARED CONCEPTS:\n- A REQUIREMENT = an imperative the result must satisfy (\"the system/plan/novel/work must …\"): concrete and developable/executable — NOT a background fact, NOT a restatement of the directive. (Form: not \"X regulations\" but \"the system must DO <Y> to satisfy <X>\".)\n- MAKE-OR-BREAK = its absence would make the result FAIL or be WRONG, not merely less polished. A genuine one is a DECISION two competent practitioners could resolve DIFFERENTLY — NOT a nice-to-have, NOT one methodology's enumerated beat-list, NOT the HOW / implementation-detail of another requirement (that is covered by its parent, not a separate requirement).\n- EXPERT STANCE: read THIS directive as the SENIOR PRACTITIONER of its real domain (a pharmacist / compliance officer for a drug system, a novelist for a novel, an expedition leader for a climb). An expert never stops at the CATEGORY — \"comply with the narcotics law\" / \"protect personal data\" is NOT a requirement; it HIDES the concrete obligations the law compels, each its own make-or-break (\"on a stock discrepancy, file the incident report to the authority within the statutory deadline\"; \"verify the vendor is a licensed wholesaler at registration\"). Name the SPECIFIC trigger / deadline / check whoever builds, writes, or executes it must satisfy — a distinct requirement an expert knows, never an implementation beat. (Likewise outside law: a novel — not \"a satisfying ending\" but the specific turn that earns it; a plan — not \"be safe\" but the specific abort threshold.) A broad \"support / comply with X\" topic HIDES the gap, it does not cover it.\n- THE BACK-SIDE: the requester is NOT a domain expert — they named the visible SURFACE (the easy 80%) and, even in a DETAILED directive, omit the make-or-break BACK-SIDE (the 20% that decides success) a senior practitioner / law / safety requires for the intent to actually work, be legal, be safe (the administrative, legal, financial, safety, contingency/failure-handling, oversight/who-administers substrate). DRAW IT OUT — adversarially ask of THIS intent: who actually OPERATES it, OVERSEES/administers it, PAYS FOR it, is kept SAFE/legal by it, and RECOVERS it when it fails or ends — and what does each REQUIRE that the requester never said? Don't be seduced by a polished, plausible surface: that polish IS the 80% trap. Then use the per-domain SHAPES below — the KIND to hunt; they COMPLEMENT the questions above (a minimal domain hint), never REPLACE them, and are NOT answers (search the real content; apply ONLY what genuinely fits THIS directive, never force a non-applicable category):\n    · SYSTEM → operator/admin console per permission grade & oversight, data model, regulation (the SPECIFIC reporting/incident triggers, deadlines, and qualifications the governing law compels — kinds to hunt, not answers), security boundaries, monitoring, lifecycle/offboarding.\n    · NOVEL → the avenger's corrosion, justice-vs-vengeance, antagonist depth, the delay engine, the payoff, the aftermath, POV/reveal-order, setting/world, reader complicity.\n    · PLAN → go/no-go gates, per-step verification, contingency/rollback, failure modes, legal/safety preconditions (the SPECIFIC approvals, clearances, and qualifications required before an act may proceed — kinds to hunt, not answers), responsibility, exit criteria.\n    · EVERYDAY (e.g. moving house) → registration, deposit/fee settlement, address changes, defect-check — not just the visible act.\n- LEGAL LENS: wherever the intent's success turns on real-world LAW, RULE, or LEGITIMACY — to be COMPLIANT (a statutory duty it must satisfy), to be PERMITTED (an approval / license / qualification that gates an act or a participation), or to be ACCURATE (a work that portrays or relies on real law) — surface the binding obligations, approvals, triggers, and deadlines the real, current law actually compels, not just the functional surface (ground them by GROUNDING below). This is NOT only for regulated systems: a plan may need a clearance, a novel may need its law right. Apply ONLY where the intent genuinely turns on law; never force it onto one that does not.\n- GROUNDING (when to SEARCH vs REASON — the one rule for any fact you rely on): the real test is \"could you be WRONG from memory?\" — info beyond your knowledge cutoff (a recent event, the CURRENT status of a law/program/standard), OR the SPECIFICS of a named statute/article/standard/figure/framework you could misremember, OR genuine uncertainty → WebSearch (put the current year in queries; NEVER assert such specifics from memory). A general principle or common design/craft choice you RELIABLY know → reason it; do NOT search what you reliably know (wasteful), and never re-search the settled.\n- COMMON-SENSE DEFAULT: where the directive leaves a gap or ambiguity, resolve it with the SIMPLEST answer common reasoning reaches — what most competent people would call obvious. Do NOT invent an unusual, elaborate, or restrictive mechanism (a quantity cap, an enforcement, a control) the directive never asked for; a plain reading beats a clever one. The unusual must come from the directive — never from you.\n- INVARIANTS — every requirement, whether GENERATED or ADDED: (1) ATOMIC — one subject, not bundled, not over-split; (2) NO DUPLICATE — not a restatement of another, judged by MEANING not wording (a narrower / re-angled / renamed / split version of an existing one is NOT new); (3) NO FORCING/FABRICATION — a genuine grounded make-or-break, never invented to seem thorough.",
+    "VERIFY_TMPL": {
+      "concat": [
+        {
+          "$": "values.COMMON"
+        },
+        "\n\nYOUR ROLE — VERIFIER (hostile). Verify ONE requirement — judge whether it is a real, grounded make-or-break. Do NOT propose new ones (a separate step).\n\nREQUIREMENT:\n- {{title}} — {{description}}\n\nPick the method by GROUNDING (SHARED CONCEPTS): could you be WRONG from memory → WebSearch the specific (verified_value = fact + source); reliably know it → verify by REASONING (necessary AND sound? verified_value = why required/sound).\nThen judge the OUTCOME — YOU decide the severity (field \"oxf\"):\n- holds AND is a real requirement → oxf \"o\" + origin + verified_value + sources + reason.\n- NOT a real requirement (wrong / unnecessary / out-of-scope / a duty the directive disclaims) → \"x\" + reason — a minor, LEGITIMATE off, NOT a failure (the result still stands without it; the node is KEPT, badge x, not removed).\n- CRITICAL break — the directive is self-contradictory or rests on an impossible premise, OR this core make-or-break is fundamentally unverifiable AND fatal so the whole result cannot stand → \"f\" + reason. Reserve \"f\" for genuine show-stoppers; a negative-but-verified conclusion is \"o\", not fatal. (Chunk-level f≥1 → discard is decided later by the audit, not here.)\nSet ORIGIN to how it is BACKED, record that backing in verified_value: \"user\" (directive states/implies it → its own words) / \"agent\" (you reasoned it → the knowledge basis, WHY required/sound) / \"search\" (grounded externally → fact + quoted passage, sources = URLs).\n\"x\" ≠ a failed search: if a NEEDED WebSearch ERRORS/empty (529), retry — do NOT \"x\".\n\nDirective: \"{{directive}}\"\n\nDo any needed search first (only if fact-hinged). FINAL message = ONLY this JSON."
+      ]
+    },
+    "GEN_SCHEMA": {
+      "type": "object",
+      "required": [
+        "title",
+        "requirements"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "titleOrigin": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent"
+          ]
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "description",
+              "origin"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "agent"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "CLASSIFY_SCHEMA": {
+      "type": "object",
+      "required": [
+        "dimension",
+        "assignments"
+      ],
+      "properties": {
+        "dimension": {
+          "type": "string"
+        },
+        "assignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "category"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "VERIFY_SCHEMA": {
+      "type": "object",
+      "required": [
+        "oxf",
+        "origin"
+      ],
+      "properties": {
+        "oxf": {
+          "type": "string",
+          "enum": [
+            "o",
+            "x",
+            "f"
+          ]
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "search"
+          ]
+        },
+        "verified_value": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "HUNT_SCHEMA": {
+      "type": "object",
+      "required": [
+        "additions"
+      ],
+      "properties": {
+        "additions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "description",
+              "origin"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "agent",
+                  "search"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "AUDIT_SCHEMA": {
+      "type": "object",
+      "required": [
+        "complete",
+        "verdict"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contradictions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sufficiency": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "prompts": {
+    "gen": "{{COMMON}}\n\nYOUR ROLE — GENERATOR: turn the directive into a BACKLOG CHUNK (덩어리) — a title for the whole + the full FLAT set of REQUIREMENTS. **You do NOT classify.** Categorization is a LATER review step (classify), run after the set is complete; here you only DISCOVER.\n\n1) CHUNK TITLE: if the directive states or clearly implies a name for the whole, EXTRACT it (titleOrigin \"user\"); else GENERATE a short faithful title from its real intent (titleOrigin \"agent\"). One short noun phrase in the directive's language — the name a practitioner files this backlog under.\n2) REQUIREMENTS — **INTERPRET, do NOT echo.** Read the directive's real intent; never pass surface phrasing through verbatim. A terse directive bundles several DISTINCT requirements in one run-on clause — split each into its OWN atomic item (title = the imperative requirement in 입력 언어, description = one line of what it must do / why make-or-break). ATOMIC: split bundled DISTINCT requirements; never split ONE requirement into its implementation beats.\n   **GENERATION IS GENEROUS — cast WIDE.** Include EVERY plausible make-or-break (content, structural/craft, operational, regulated, the back-side). Generosity is SAFE: the per-item verifier grounds each and rejects (x) any that does not hold — better to slightly OVER-include than to miss one. No cap, no stinginess; this set must be COMPLETE. Obey the INVARIANTS. origin = \"user\" if the directive states/implies it, \"agent\" if you derive it as a make-or-break the directive never stated. You cannot search here. There is NO optional tier — a nice-to-have is NOT a requirement.\n   **DO NOT group, do NOT invent a category dimension, do NOT prune to fit a frame.** Pre-classifying prunes topics outside the frame and breaks completeness — emit requirements[] FLAT. The classify step (after hunt completes the set) invents the dimension and assigns categories then.\n\nDirective: \"{{directive}}\"",
+    "hunt": "{{COMMON}}\n\nYOUR ROLE — VERIFIER (hostile). CERTIFY THE WHOLE, not the parts. A part-by-part \"o\" does NOT mean the result works — certify the ASSEMBLED set delivers the goal. The generator is an LLM; DISTRUST the list. Run ALL FIVE checks; request what each surfaces (→ additions, each a new requirement: title + description + category):\n  - GOAL-REACH: state, in your reasoning, what the result must ACHIEVE for the requester beneath the surface, then check the ledger reaches it. If the core outcome rests on an impossible/unverified premise, VERIFY it (search if external) and request the feasibility precondition. Never assume the premise holds.\n  - CONTRADICTION: mentally BUILD the whole toward that goal. Where two requirements conflict so a builder is BLOCKED until one is overruled, request the requirement that RESOLVES which wins.\n  - SEAM: where the JOIN between two requirements is owned by neither and a builder must GUESS a make-or-break decision, request the rule that OWNS the join.\n  - DEPTH: apply EXPERT STANCE + LEGAL LENS to every named/regulated requirement — does it state the SPECIFIC obligation/trigger the law compels, or stop at the category? If only the category, request the specific one.\n  - DOMAIN-FAILURE: as the senior practitioner, put the result as-built into ACTUAL use over time — beyond logical reach, what FAILS in PRACTICE that a part-by-part check misses? Request the make-or-break that prevents it. Stay inside the directive's stated scope.\nDo NOT request nice-to-haves. Do NOT re-request what the ledger covers (NO DUPLICATE — by MEANING). Additions are FLAT requirements (title + description + origin) — do NOT categorize; the classify step (which runs AFTER you) invents the dimension over the COMPLETE set. ZERO additions is the correct, expected answer for a complete ledger — a forced requirement is worse than none. Over-enumeration is failure.\n\nFull ledger (propose ONLY missing make-or-breaks; do NOT re-verify these):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nDo any needed search first. FINAL message = ONLY this JSON.",
+    "classify": "{{COMMON}}\n\nYOUR ROLE — CLASSIFIER (검토·분류). 생성·누락탐색이 끝났다 — 아래 원장이 **완성된 전체 요건**이다. 새 요건을 만들지 마라(그건 hunt 몫). 전체를 senior practitioner 로서 읽고, 이 도메인에 맞는 분류 차원 하나를 INVENT 한 뒤, 모든 요건을 정확히 한 카테고리로 배정한다.\n  - DIMENSION: 이 도메인에 맞는 차원 하나를 발명(a system: 기능 영역; a novel: 막/장; a plan: 국면; a climb: 구간 — 고정 분류법 금지, directive 와 실제 요건들에서 도출). **집합이 이미 완성됐으니(hunt 후) 프레임 밖 토픽이 잘릴 위험이 없다 — 그래서 생성이 아니라 여기서 분류한다.**\n  - ASSIGN: 원장의 모든 항목을 그 차원의 카테고리로. assignments[] 각 원소 = {id(원장 줄 맨 앞 [id]), category}. 모든 id 를 정확히 한 번씩, 정확히 한 카테고리로. category 는 짧은 명사구(입력 언어). 카테고리 수는 집합이 정하게 — 억지로 늘리거나 줄이지 마라.\n\n완성된 전체 원장(각 줄 맨 앞 [id] 로 배정):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "audit": "{{COMMON}}\n\nYOUR ROLE — AUDITOR (the backlog chunk's parent certification). The per-item badges are already set. Your job is NOT to re-judge items one by one — CERTIFY THE WHOLE ASSEMBLED SET (부품 아닌 전체): does this set, taken together, deliver the directive's goal completely and coherently? Judge three axes, give ONE verdict:\n  - 누락 (gaps): any make-or-break MISSING that the goal cannot stand without? List each (empty if none).\n  - 모순 (contradictions): any two requirements conflict so a builder is blocked until one is overruled? List each (empty if none).\n  - 충분 (sufficiency): assembled, does the set REACH the goal — not just cover the surface? State plainly whether it suffices and why.\nSet complete=true ONLY if no goal-breaking gaps, no unresolved contradictions, and the set genuinely suffices. verdict = one paragraph: what the assembled draft achieves and the single most important thing still missing or wrong (or \"완결\" if none). Do NOT pad. Stay inside the directive's stated scope.\n\nFull ledger (CERTIFY this whole):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nDo any needed search first. FINAL message = ONLY this JSON."
+  },
+  "stages": {
+    "": [
+      {
+        "op": "publish",
+        "node": {
+          "id": "chunk",
+          "kind": "chunk",
+          "isDraft": true,
+          "parentDraftId": {
+            "$": "args.parentDraftId",
+            "or": ""
+          },
+          "title": {
+            "$": "args.title",
+            "or": "구체화 덩어리"
+          },
+          "description": {
+            "$": "args.directive"
+          }
+        }
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "gen",
+          "kind": "task",
+          "stage": "generate",
+          "parent": "chunk",
+          "title": "요건 도출"
+        }
+      }
+    ],
+    "generate": [
+      {
+        "op": "agent",
+        "prompt": "gen",
+        "schema": "GEN_SCHEMA",
+        "label": "요건 도출",
+        "bind": "tree"
+      },
+      {
+        "op": "forEach",
+        "in": "tree.requirements",
+        "when": "item.title",
+        "collect": "itemIds",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "i"
+              },
+              "kind": "item",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.description",
+                "or": ""
+              },
+              "origin": {
+                "$": "item.origin"
+              },
+              "badge": {
+                "$": "values.PENDING"
+              },
+              "schema": "VERIFY_SCHEMA",
+              "promptRole": "verify",
+              "vars": {
+                "title": {
+                  "$": "item.title"
+                },
+                "description": {
+                  "$": "item.description",
+                  "or": ""
+                }
+              },
+              "varRefs": {
+                "directive": "directive"
+              },
+              "registerPromptsOnce": {
+                "verify": {
+                  "$": "values.VERIFY_TMPL"
+                },
+                "directive": {
+                  "$": "args.directive"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "hunt",
+          "kind": "task",
+          "stage": "hunt",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "누락 탐색",
+          "blockedBy": [
+            {
+              "$": "itemIds"
+            }
+          ]
+        }
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "classify",
+          "kind": "task",
+          "stage": "classify",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "분류",
+          "blockedBy": [
+            {
+              "$": "itemIds"
+            },
+            "hunt"
+          ]
+        }
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "audit",
+          "kind": "task",
+          "stage": "audit",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "부모 감사",
+          "blockedBy": [
+            {
+              "$": "itemIds"
+            },
+            "hunt",
+            "classify"
+          ]
+        }
+      },
+      {
+        "op": "return",
+        "value": {
+          "chunkTitle": {
+            "$": "tree.title",
+            "or": ""
+          },
+          "titleOrigin": {
+            "$": "tree.titleOrigin",
+            "or": "agent"
+          }
+        }
+      }
+    ],
+    "hunt": [
+      {
+        "op": "agent",
+        "prompt": "hunt",
+        "schema": "HUNT_SCHEMA",
+        "label": "누락 탐색",
+        "bind": "r"
+      },
+      {
+        "op": "forEach",
+        "in": "r.additions",
+        "when": "item.title",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "add"
+              },
+              "kind": "item",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.description",
+                "or": ""
+              },
+              "origin": {
+                "$": "item.origin"
+              },
+              "badge": {
+                "$": "values.PENDING"
+              },
+              "schema": "VERIFY_SCHEMA",
+              "promptRole": "verify",
+              "vars": {
+                "title": {
+                  "$": "item.title"
+                },
+                "description": {
+                  "$": "item.description",
+                  "or": ""
+                }
+              },
+              "varRefs": {
+                "directive": "directive"
+              },
+              "registerPromptsOnce": {
+                "verify": {
+                  "$": "values.VERIFY_TMPL"
+                },
+                "directive": {
+                  "$": "args.directive"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "return",
+        "value": {}
+      }
+    ],
+    "classify": [
+      {
+        "op": "agent",
+        "prompt": "classify",
+        "schema": "CLASSIFY_SCHEMA",
+        "label": "분류",
+        "bind": "r"
+      },
+      {
+        "op": "return",
+        "value": {
+          "dimension": {
+            "$": "r.dimension",
+            "or": ""
+          },
+          "assignments": {
+            "$": "r.assignments",
+            "or": []
+          }
+        }
+      }
+    ],
+    "audit": [
+      {
+        "op": "agent",
+        "prompt": "audit",
+        "schema": "AUDIT_SCHEMA",
+        "label": "부모 감사",
+        "bind": "r"
+      },
+      {
+        "op": "return",
+        "value": {
+          "verdict": {
+            "$": "r.verdict",
+            "or": "(감사 결과 없음)"
+          },
+          "complete": {
+            "$": "r.complete",
+            "or": false
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "domain": "webservice",
+  "triggers": ["웹서비스", "웹 서비스", "서비스", "web app", "웹앱", "service", "saas", "플랫폼", "platform", "권한", "permission", "역할", "role", "어드민", "admin"],
+  "directives": [
+    {
+      "id": "web-authz-admin",
+      "directive": "권한·역할 모델이 존재하면 권한별 어드민(운영자) 페이지를 필수로 제작한다. 권한 부여/회수 UI 없는 권한 모델 출시 금지.",
+      "rationale": "권한 모델은 운영자가 권한을 관리할 UI 가 반드시 따라온다 — 일반 아이디어엔 드러나지 않는 도메인 불변."
+    },
+    {
+      "id": "web-auth-session",
+      "directive": "사용자 인증·세션 수명주기(로그인/로그아웃/만료/갱신)를 명시한다. 인증 경계 없는 보호 리소스 노출 금지.",
+      "rationale": "웹 서비스는 인증 경계가 보안의 기본축이다."
+    },
+    {
+      "id": "web-audit-log",
+      "directive": "권한 변경·결제·데이터 삭제 등 민감 변경에 감사 로그(누가·언제·무엇)를 남긴다.",
+      "rationale": "사후 추적·규정 준수의 단일 진실은 감사 로그다."
+    },
+    {
+      "id": "web-input-validation",
+      "directive": "모든 외부 입력은 서버 측에서 검증한다. 클라이언트 검증만으로 신뢰 금지.",
+      "rationale": "클라이언트 검증은 우회 가능 — 신뢰 경계는 서버다."
+    }
+  ]
+}

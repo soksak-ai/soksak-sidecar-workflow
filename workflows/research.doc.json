@@ -1,0 +1,1097 @@
+{
+  "spec": "workflow-doc@0.0.1",
+  "meta": {
+    "name": "research",
+    "description": "RESEARCH+DESIGN(선별 체인)+PLAN 워크플로 — 인증 덩어리의 기초지식(fact)을 확정하고, design 체인(interface→domain→criteria — 대회 실측 채택 방법론, 뒤 스텝이 앞 산출을 ground 로 계승)이 구조를 확정하고, plan(한턴)이 모든 파일의 슈도코드 유닛으로 분해한다. 이슈라이즈(파일별 실코드화)의 전제."
+  },
+  "args": {
+    "directive": {
+      "from": [
+        "directive",
+        "DIRECTIVE"
+      ],
+      "default": ""
+    },
+    "chunkRef": {
+      "from": [
+        "chunkRef"
+      ],
+      "default": ""
+    },
+    "title": {
+      "from": [
+        "title"
+      ],
+      "default": ""
+    },
+    "file_path": {
+      "from": [
+        "file_path",
+        "filePath"
+      ],
+      "default": ""
+    },
+    "pseudocode": {
+      "from": [
+        "pseudocode"
+      ],
+      "default": ""
+    },
+    "gaps": {
+      "type": "string",
+      "description": "plan-audit 이 지적한 누락 표면 목록(불릿 문자열) — plan-patch 전용."
+    }
+  },
+  "values": {
+    "PENDING": "검수전",
+    "RESEARCH_COMMON": "SHARED CONCEPTS (research):\n- A FACT = a foundational decision or obligation the build will stand on — a FRAMEWORK/stack choice, a METHODOLOGY rule (how the work is verified, gated, shipped), a DOMAIN DIRECTIVE (a law/regulation/standard obligation this domain compels), or a SURFACE decision (which operating surfaces — the frontend/console/settings screen each actor reaches the result through — the build must provide to be operable, where it cannot be operated without them). Imperative, concrete, buildable-on — NOT a survey, NOT a tutorial, NOT a restatement of the directive.\n- MAKE-OR-BREAK only: a genuine one is a DECISION two competent practitioners could resolve DIFFERENTLY, whose wrong resolution would make the build FAIL, be ILLEGAL, or be REWRITTEN later. NOT a nice-to-have, NOT one methodology's enumerated beat-list.\n- GROUNDING (the one rule for any claim you rely on): could you be WRONG from memory? A version number, the CURRENT status of a law/standard/library, pricing, deprecations, anything possibly post-cutoff → SEARCH FIRST with the search / library-docs tools your runtime provides (a web-search or docs MCP tool — put the current year in queries) and mark origin \"search\" with the source. A stable principle or design choice you RELIABLY know → reason it, origin \"agent\". NEVER assert such specifics from memory; never re-search the settled.\n- NO FABRICATION: every fact must trace to the requirements' real needs or a real external source. An invented obligation is worse than a gap.\n- INVARIANTS — every fact: (1) ATOMIC — one decision per fact, not bundled; (2) NO DUPLICATE — judged by MEANING; (3) CONSEQUENTIAL — the description states what the decision enables or prevents (\"choose/do X so that Y\"); a bare name is not a decision.",
+    "FACT_VERIFY_TMPL": {
+      "concat": [
+        {
+          "$": "values.RESEARCH_COMMON"
+        },
+        "\n\nYOUR ROLE — REFUTER (adversarial). Your job is NOT to confirm this fact — it is to REFUTE it. Attempt to prove it WRONG for this directive: factually incorrect (a version/law/external specific you can disprove by search), unnecessary, out-of-scope, a restatement of the directive, or a nice-to-have.\n\nFACT:\n- {{title}} — {{description}}\n\nPick the method by GROUNDING: could the claim be wrong from memory (a version, a law's current status, an external specific) → WebSearch and try to DISPROVE it; a stable principle → reason whether it is genuinely necessary AND sound for THIS directive.\nThen judge (field \"oxf\"):\n- You attempted to refute and COULD NOT — it holds and is a real foundational make-or-break → \"o\" + origin + verified_value(the confirmed specific + where, or why necessary) + sources + reason.\n- You refuted it, OR you are UNCERTAIN whether it holds → \"x\" + reason. Reject-if-uncertain is the rule: an unrefuted-but-shaky fact carried downstream is worse than a real one dropped — the audit's rotating lenses re-surface a truly load-bearing one. A minor legitimate drop, not a failure.\n- Could not run the check at all (search errored/empty on a NEEDED external) → \"f\" + reason (retry, do not guess).\nFINAL message = ONLY this JSON."
+      ]
+    },
+    "RESEARCH_SCHEMA": {
+      "type": "object",
+      "required": [
+        "facts"
+      ],
+      "properties": {
+        "facts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "description",
+              "origin",
+              "area"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "agent",
+                  "search"
+                ]
+              },
+              "area": {
+                "type": "string",
+                "enum": [
+                  "framework",
+                  "methodology",
+                  "directive",
+                  "surface"
+                ]
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "description": "이 항목의 검증 난이도 tier(선택). 강한 신호 하나로 판정하고 평균으로 희석하지 마라 — 순수 기계적·되돌리기 쉬운 검증만 low/medium, 아키텍처·보안·프로덕션 위험이 걸린 검증은 high/max — 규제·법정 의무·불가역 데이터 무결성은 max. 애매하면 높게. 생략 시 최고. (routing-skill.md)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "VERIFY_SCHEMA": {
+      "type": "object",
+      "required": [
+        "oxf",
+        "origin"
+      ],
+      "properties": {
+        "oxf": {
+          "type": "string",
+          "enum": [
+            "o",
+            "x",
+            "f"
+          ]
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "search"
+          ]
+        },
+        "verified_value": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "PLAN_SCHEMA": {
+      "type": "object",
+      "required": [
+        "units"
+      ],
+      "properties": {
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "file_path",
+              "pseudocode",
+              "implements"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "file_path": {
+                "type": "string",
+                "description": "one concrete real path this unit creates or modifies — one file, never a folder/layer/wildcard"
+              },
+              "pseudocode": {
+                "type": "string",
+                "description": "the complete body plan for that one file; in prose cites the requirement [id], fact [id], and design-contract names it uses, never re-declares a design fact, and ends with an acceptance line that cites the covering criterion [id] at its tier"
+              },
+              "implements": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "requirement ids this file realizes — each a RAW ledger id, NO brackets (i7 not [i7]), copied verbatim from the head of its ledger line; mirrors the bracketed prose citation"
+              },
+              "stands_on": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "fact ids (research facts and design facts) this file builds on — RAW ids, NO brackets, verbatim from the ledger head"
+              },
+              "consumes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "declared names of the design contracts (interface/model design facts) this file consumes at a seam — verbatim as the owning design fact declared them"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "description": "이 항목의 검증 난이도 tier(선택). 강한 신호 하나로 판정하고 평균으로 희석하지 마라 — 순수 기계적·되돌리기 쉬운 검증만 low/medium, 아키텍처·보안·프로덕션 위험이 걸린 검증은 high/max — 규제·법정 의무·불가역 데이터 무결성은 max. 애매하면 높게. 생략 시 최고. (routing-skill.md)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "DESIGN_COMMON": "SHARED CONCEPTS (design):\n\n- A DESIGN FACT = a STRUCTURE decision the build will be shaped by — exactly one of: a DOMAIN-MODEL element (an entity with its typed columns and their constraints, a relationship with its cardinality, or an index), an INTERFACE (a module / endpoint / function contract: its signature, inputs, outputs, and error behavior), or an ACCEPTANCE CRITERION (one measurable, falsifiable check that proves a requirement met). It REALIZES the certified requirements on the FIXED GROUND of the verified facts. Concrete and buildable / checkable — NOT a re-decision of a fact, NOT a restatement of a requirement, NOT a survey of alternatives. \"DESIGN FACT\" is the ONE name for this thing; domain-model / interface / criterion are its kinds, never separate concepts under other names.\n\n- ARCHITECT STANCE: read the certified backlog and the fixed ground as the SENIOR ENGINEER who must now COMMIT the structure — the exact entities, contracts, and checks a builder will implement without further design. You do not re-open WHAT to build (the requirements settled that) nor WHAT it stands on (the facts settled that); you decide ONLY the SHAPE those two leave open.\n\n- STAND ON THE FIXED GROUND: the requirements ledger is CERTIFIED (each one verified individually) and the facts are VERIFIED (badge 'o') — both are FIXED, not yours to re-litigate. Do NOT re-investigate, do NOT WebSearch, do NOT re-open a settled fact, do NOT contradict one. If shaping the structure reveals a needed fact the ground does NOT contain, that is a GAP to surface — never invent it, never assume it, never silently decide it here.\n\n- SELF-DETERMINATION ONLY (no echo): the certified requirements and the fixed facts are handed to you as INPUT — do NOT copy them into your output. A design fact restates NEITHER a requirement NOR a fact; it is the structure decision that neither of them states — the entity / constraint / contract / acceptance shape that REALIZES them. If your output merely re-says a requirement or a fact in other words, it is ECHO, not a design fact — drop it.\n\n- MAKE-OR-BREAK only: a genuine design fact is a SHAPE decision two competent engineers could resolve DIFFERENTLY, whose wrong resolution would make the build FAIL, be WRONG, or be REWRITTEN later. NOT a nice-to-have, NOT the HOW / implementation-detail of another design fact (that is covered by its parent, never a separate one), NOT a shape the requirements + facts ALREADY fully determine (a forced consequence is not a decision — restating it is echo). If the ground leaves the shape OPEN and getting it wrong breaks the build, it is a design fact; otherwise it is not.\n\n- CITATION — trace every design fact to what it stands on, INSIDE its description: cite the requirement id(s) it realizes AND, where it obeys one, the fact id(s) it stands on. Copy each id EXACTLY as the ledger prints it at the HEAD of its line — the id may be ANY string, including a uuid; never renumber, never paraphrase, never invent one. The tokens [i3], [i17], [fact0], [fact2] are FORMAT ILLUSTRATIONS only — never assume the ledger numbers its lines that way; copy the real token verbatim. In prose and code comments, write the citation bracketed: [<id>]. In any structured schema array that carries ids, write the raw id WITHOUT brackets. Examples: a domain-model fact — \"sessions(user_id FK->users.id, token UNIQUE, expires_at NOT NULL) — realizes session-expiry [i7] on the Postgres decision [fact1]\"; an acceptance fact — \"POST /auth/login with a wrong password returns 401 and increments the failure counter — proves the lockout requirement [i3] under the rate-limit rule [fact4]\". A design fact citing NO requirement is fabrication; a design fact contradicting a cited fact is invalid.\n\n- INVARIANTS — every design fact: (1) ATOMIC — ONE structure decision (one entity, one relationship, one index, one interface contract, one acceptance check), not bundled, not over-split into its own implementation beats; (2) NO DUPLICATE — judged by MEANING not wording, and across ALL three categories AND the research facts already on the ground; a renamed / re-scoped / re-angled version of an existing fact is NOT new; (3) CONCRETE & STABLE — the actual buildable, checkable shape (the real name, column, constraint, signature, or measurable check), never an abstract intention a builder would still have to design nor a criterion no command could falsify; a name it introduces stays consistent so a sibling design fact and a downstream plan-unit reference it by that same name; (4) GROUNDED, NEVER FABRICATED — traces to a real requirement [id] and stands on the fixed facts; never invented to seem thorough, never contradicts or silently re-decides a verified fact.",
+    "DESIGN_VERIFY_TMPL": {
+      "concat": [
+        {
+          "$": "values.DESIGN_COMMON"
+        },
+        "\n\nSHARED CONCEPTS (design):\n- A DESIGN FACT = a make-or-break STRUCTURE the build stands on, committed in exactly one of three categories: a DOMAIN-MODEL element (an entity, a typed column with its constraint, a relationship + its cardinality, an index), an INTERFACE (a contract/signature two units meet at — its declared code), or an ACCEPTANCE CRITERION (one measurable, falsifiable check that proves a requirement met — its surface + proof tier). Concrete and buildable/checkable-on — NOT a restatement of a requirement, NOT a restatement of a research fact, NOT one implementation beat of an already-decided model.\n- MAKE-OR-BREAK = a shape two competent architects could resolve DIFFERENTLY, whose wrong resolution makes the build FAIL, be WRONG, or be REWRITTEN later. NOT a nice-to-have, NOT the HOW of a design fact already decided elsewhere (that is covered by its parent, not a separate design fact).\n- THE GROUND: the certified requirement ledger and the verified facts are given to you as INPUT — they are FIXED. A design fact must SERVE at least one requirement and STAND ON the facts; it may never CONTRADICT either. You do not re-judge the requirements or the facts here; you judge THIS design fact against them.\n- id form: the ledger and the facts print each line headed by its id in [brackets] — \"- [id] [badge] (category?) title — description\". The id is whatever string the ledger printed at the head of the line (it may be a uuid, not [i3]). [i3] / [fact0] below are FORMAT EXAMPLES only — read the real id off the head of the line and quote it EXACTLY, never renumber, never invent.\n\nYOUR ROLE — VERIFIER (hostile). Verify ONE design fact — judge whether it is a real make-or-break DESIGN FACT that is CONSISTENT with the certified requirements and the verified facts. Do NOT propose new design facts (a separate step). Do NOT copy the ledger or the facts into your answer — they are your input, not your output.\n\nDESIGN FACT (its category is stated in its head):\n- {{title}} — {{description}}\n\nThe description carries the full committed shape, and WHAT it carries depends on the category — judge by the matching lens:\n- domain-model — the description states the entity / column / relationship / constraint. Judge: does every named constraint (PK / FK / NOT NULL / UNIQUE / DEFAULT) resolve to a field that exists, does the relationship agree with its FK direction and cardinality, does each entity and relationship trace to a requirement that forces its data into storage? A dangling FK, a many-to-many with no join entity, or a stored thing no requirement compels is a break.\n- interface — the description contains REAL CODE (a type / signature in the language the facts fixed). Judge the CODE: is it complete and compilable as written (no pseudocode, no elided body, no `...`, no TODO), does it declare its failure shape (error type / result wrapper / nullable), does it stand at a genuine two-unit seam (not a private type hoisted), does it obey the stack an \"o\" fact fixed? A happy-path-only or non-compiling signature is a break.\n- criterion — the description contains the falsifiable check plus its SURFACE and PROOF tier. Judge: is the observable a signal a checker actually READS (an exit code / a parsed file / a view state / a socket payload), not a vague verb (handle / support / work); does the proof tier match the surface (static-config→build, declaration-only→build, pure-logic→unit, browser-runtime→e2e, system-runtime→integration|e2e)? A mismatched surface/proof pair or an unreadable observable is a break.\n\nPick the method by GROUNDING: could a specific inside the design fact be WRONG from memory (an external contract shape, a versioned API, a standard's current form, a library type) → WebSearch and confirm it (verified_value = the confirmed specific + where confirmed). A design fact resolvable against the ledger and facts alone → verify by REASONING (does it serve a real requirement AND stand on the facts WITHOUT contradicting either, and is it a genuine make-or-break of its category? verified_value = which requirement it serves / which fact it stands on / why sound).\nThen judge the OUTCOME — YOU decide the severity (field \"oxf\"):\n- serves a real requirement, stands on the facts, contradicts neither, and is a genuine make-or-break design fact of its category → oxf \"o\" + origin + verified_value + sources + reason.\n- NOT a real make-or-break (redundant with another design fact, a mere implementation detail of an already-decided model, out of scope, cosmetic) → \"x\" + reason — a minor, LEGITIMATE off, NOT a failure (the result still stands without it; the node is KEPT, badge x, not removed).\n- CONTRADICTION — the design fact conflicts with a certified requirement or an \"o\" fact (a model that violates the ledger, an interface that breaks a fact, a criterion whose surface/proof pair is invalid), OR rests on an impossible premise, so building on it yields a WRONG result → \"f\" + reason. Reserve \"f\" for a genuine contradiction, impossibility, or invalid category shape; a design fact that merely turned out unnecessary is \"x\", not fatal.\nSet ORIGIN to how it is BACKED, record that backing in verified_value: \"user\" (the directive states/implies this design fact → its own words) / \"agent\" (you reasoned it against ledger+facts → the basis, why sound) / \"search\" (a specific grounded externally → fact + quoted passage, sources = URLs).\n\"x\" ≠ a failed search: if a NEEDED WebSearch ERRORS/empty (529), retry — do NOT \"x\".\n\n\n\nDirective: \"{{directive}}\"\n\nDo any needed search first (only if fact-hinged). FINAL message = ONLY this JSON."
+      ]
+    },
+    "PLAN_VERIFY_TMPL": "SHARED CONCEPTS (plan):\n- A PLAN-UNIT = ONE development task bound to EXACTLY ONE file: a self-contained pseudocode a builder (human or agent) can start and finish without asking anything. It CITES the requirement ids it implements (from the ledger) and the facts and DESIGN FACTS it stands on (from the fixed ground), names its file_path, states inputs/outputs, and ends with the acceptance check that proves it done.\n- CITE, NEVER ECHO: a citation is a CLAIM the pseudocode implements that requirement or stands on that fact / design fact — not a copy of its text. A unit that cites an id but whose pseudocode does something else, or nothing, is a BROKEN citation.\n- SEAM = the join two units meet at — a shared interface or model owned by a DESIGN FACT. The design is FIXED upstream; the plan CITES it, never re-declares or re-decides it. A unit must HONOR the seam the design fact it cites owns; it may NOT re-decide a contract another unit depends on.\n- THE GROUND: the ids this unit cites are cross-checked against the ledgers DETERMINISTICALLY downstream — do NOT try to re-verify their existence here. Judge what you CAN see: the decision itself against the directive and distinguished by category: domain-model / interface / criterion) are given to you as INPUT, each line headed by its id in [brackets]. A unit stands on a design fact by that [id], or by the model / interface name the design fact defines. The ground is fixed; you do not re-litigate it. You judge whether THIS unit implements what it cites and contradicts none of it.\n- id form: read each id off the head of its ledger line and quote it EXACTLY; the id is whatever string the ledger printed (possibly a uuid). [i3] / [fact0] are FORMAT EXAMPLES only, never a template to renumber into.\n\nYOUR ROLE — VERIFIER (hostile). Verify ONE plan-unit — judge whether its pseudocode actually IMPLEMENTS the requirements it cites, STANDS ON the facts and design facts it cites, targets a valid single file, and honors its seams. Do NOT propose new units (a separate step). Do NOT copy the ledger or the facts into your answer.\n\nUNIT:\n- {{title}} — file: {{category}}\n- pseudocode: {{description}}\n\nVerify by REASONING against the ground (search only if the pseudocode hinges on an external specific you could misremember; then verified_value = the confirmed specific + where):\n- CITATION RESOLVES: for EACH id the pseudocode cites — a requirement id, a research-fact id, or a design-fact id / name — does it actually EXIST in the ledger or the fixed ground (a cited id present in neither is fabrication), AND does the pseudocode actually implement it / genuinely stand on it (not merely name it)? A cited id the code never delivers, or one that resolves to nothing, is a broken citation.\n- FILE_PATH VALID: is file_path a single, plausible target for THIS unit's work (the layer / language / location the directive and facts imply), and does the unit stay inside that ONE file (not a bundle of many)?\n- SEAM KEPT: does the unit honor the interface / model the DESIGN FACT it cites owns — citing it by its fixed name / [id] — without re-deciding a seam another unit depends on?\nverified_value = which citations resolve and hold, and why the file_path and seams are sound.\nThen judge the OUTCOME — YOU decide the severity (field \"oxf\"):\n- citations resolve and hold, file_path is valid, seams are kept, and the unit is a real slice of the build → oxf \"o\" + origin + verified_value + sources + reason.\n- a legitimate-but-weak unit (redundant with another unit, padding, a nice-to-have that cites no requirement) → \"x\" + reason — NOT a failure (the node is KEPT, badge x, not removed).\n- BROKEN — the pseudocode does NOT implement what it cites (or contradicts a cited fact / design fact), OR a cited id resolves to nothing in either ledger, OR the file_path is invalid / impossible / spans many files, OR it re-decides or breaks a seam another unit depends on, so the build cannot be assembled from these units → \"f\" + reason. Reserve \"f\" for a genuine break; a merely redundant unit is \"x\", not fatal.\nSet ORIGIN to how it is BACKED, record that backing in verified_value: \"user\" (the directive dictates this unit's shape) / \"agent\" (you reasoned the citations resolve and hold against ledger+facts) / \"search\" (a specific grounded externally → fact + quoted passage, sources = URLs).\n\"x\" ≠ a failed search: if a NEEDED WebSearch ERRORS/empty (529), retry — do NOT \"x\".\n\n\n\nDirective: \"{{directive}}\"\n\nDo any needed search first (only if fact-hinged). FINAL message = ONLY this JSON.",
+    "BODY_VERIFY_TMPL": "SHARED CONCEPTS (body):\n- A BODY = the real, compilable/runnable code for ONE plan-unit's file — the pseudocode's intent REALIZED, not restated. It writes the unit's file_path and carries a PROOF command a machine runs to demonstrate that file works.\n- PROOF = a concrete command (a test, a build, a run) whose passing is EVIDENCE this file does what the unit intended. A command that does not exercise this file, targets the wrong thing, or passes vacuously is NOT proof.\n- THE CONTRACT: the plan-unit's pseudocode is given to you as INPUT — it is the contract. The code must implement ITS intent (the requirements it implements, the facts and DESIGN FACTS it stands on); it may not drift into a different or partial thing. You judge the code against the pseudocode; you do NOT execute it.\n- id form: where the pseudocode cites an id (a requirement, a research fact, a design fact), the id is whatever string the parent ledger printed; [i7] / [fact2] are FORMAT EXAMPLES only. You match ids as given — you do not renumber them.\n\nYOUR ROLE — VERIFIER (hostile). Verify ONE body — judge whether the real code implements the plan-unit's pseudocode intent, is plausibly compilable/runnable, and whether its proof command actually proves THIS file. Do NOT rewrite the code (a separate step). Do NOT copy the code or pseudocode into your answer.\n\nBODY:\n- file: {{title}}\n- pseudocode (the contract):\n{{pseudocode}}\n- code:\nTHE CODE AND ITS PROOF (one surface — the code, then a \"---- PROOF ----\" block carrying commands / pass_condition / implements):\n{{description}}\n- Judge the PROOF block inside the surface above: do its commands actually prove THIS file, and is pass_condition falsifiable?\n\nVerify by STATIC REASONING — read the code as a senior engineer; you do NOT run it (search only if the code hinges on an external API / library shape you could misremember; then verified_value = the confirmed shape + where):\n- IMPLEMENTS INTENT: does the code deliver what the pseudocode intended (the requirements it implements, the facts / design facts it stands on), not a partial, empty, or different thing?\n- VIABLE: does it look like it would compile/run — no undefined references, no missing imports/definitions the file needs, no syntax that would fail, consistent with the file's language and layer, honoring the interface / model shapes the cited design facts fixed?\n- PROOF PROVES IT: does the proof command actually EXERCISE this file (right target, real assertions), so its passing is genuine evidence — not vacuous, not tautological, not aimed at a different file?\nverified_value = what the code implements + why it is viable + what the proof exercises.\nThen judge the OUTCOME — YOU decide the severity (field \"oxf\"):\n- implements the intent, looks viable, and the proof genuinely exercises this file → oxf \"o\" + origin + verified_value + sources + reason.\n- a minor deviation that does not break (an acceptable alternative implementation, a stylistic gap, a narrow-but-sound proof) → \"x\" + reason — NOT a failure (the node is KEPT, badge x, not removed).\n- BROKEN — the code does NOT implement the pseudocode intent, OR it cannot plausibly compile/run (undefined refs, missing definitions, broken syntax, a violated interface / model shape), OR the proof command does not prove this file (wrong target, passes vacuously, proves nothing) → \"f\" + reason. Reserve \"f\" for a genuine break; a viable body with a minor gap is \"x\", not fatal.\nSet ORIGIN to how it is BACKED, record that backing in verified_value: \"user\" (the pseudocode/directive dictates the implementation) / \"agent\" (you reasoned about the code statically) / \"search\" (an external API/shape confirmed → fact + quoted passage, sources = URLs).\n\"x\" ≠ a failed search: if a NEEDED WebSearch ERRORS/empty (529), retry — do NOT \"x\".\n\nDirective: \"{{directive}}\"\n\nDo any needed search first (only if fact-hinged). FINAL message = ONLY this JSON.",
+    "DESIGN_SCHEMA": {
+      "type": "object",
+      "required": [
+        "facts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "facts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "description",
+              "category",
+              "origin"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "the decision in one line — for domain-model the entity/relationship/index name, for interface the contract name, for criterion the one-line check"
+              },
+              "description": {
+                "type": "string",
+                "description": "the decision in full with its [id] citations inside; interface facts carry a compilable code block; criterion facts state actor/action/expected_outcome/observable + surface + required_proof"
+              },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "domain-model",
+                  "interface",
+                  "criterion"
+                ]
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "agent"
+                ]
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "description": "이 항목의 검증 난이도 tier(선택). 강한 신호 하나로 판정하고 평균으로 희석하지 마라 — 순수 기계적·되돌리기 쉬운 검증만 low/medium, 아키텍처·보안·프로덕션 위험이 걸린 검증은 high/max — 규제·법정 의무·불가역 데이터 무결성은 max. 애매하면 높게. 생략 시 최고. (routing-skill.md)"
+              }
+            }
+          }
+        }
+      }
+    },
+    "BODY_SCHEMA": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "blocked"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "content"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string",
+              "maxLength": 50000
+            }
+          }
+        },
+        "proof": {
+          "type": "object",
+          "required": [
+            "commands",
+            "pass_condition"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "commands": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "pass_condition": {
+              "type": "string"
+            }
+          }
+        },
+        "implements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "conflict": {
+          "type": "string"
+        }
+      }
+    },
+    "PLAN_AUDIT_SCHEMA": {
+      "type": "object",
+      "required": [
+        "complete",
+        "verdict",
+        "gaps"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contradictions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "removals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "reason"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "CHANGES_SCHEMA": {
+      "type": "object",
+      "required": [
+        "changes"
+      ],
+      "properties": {
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "op",
+              "reason"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "add",
+                  "remove",
+                  "reraise"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "prompts": {
+    "research": "{{RESEARCH_COMMON}}\n\nYOUR ROLE — RESEARCHER: the backlog below is CERTIFIED (every requirement individually verified). Your job is to fix the COMPLETE GROUND the build stands on — ALL the background knowledge, framework selections, and guidelines a senior practitioner locks BEFORE planning, so that design and plan only REALIZE this ground and never re-decide it. This is the whole reason research exists: anything you leave out, design and plan must RE-INVENT — and ground re-invented downstream is research that failed. Completeness is the job — not a narrow set of highlights but every load-bearing decision the build cannot stand without. Establish it ALL, in these areas:\n- framework: COMMIT the full stack the build stands on — every load-bearing layer the requirements and surfaces need: the backend runtime/language, the storage, the FRONTEND framework each operating surface (screen) is built with, and any other architectural layer the build cannot stand without — including the operational/runtime strategy the requirements genuinely need: the container/runtime environment the build ships in (base image + its version, and the deployment topology), caching, async processing and queues, scheduled jobs / cron, background and retry handling, idempotency, rate-limiting, and observability. PIN EVERY choice — language, runtime, each backend/frontend framework, the database, the cache, the queue, the container base image, and each load-bearing library — to a concrete, CURRENT version and confirm they are mutually COMPATIBLE across the stack; NO choice may stand as a bare name (a name without its pinned version is incomplete ground the plan cannot build on). GROUND these by search: you can be wrong from memory about current versions, LTS lines, and cross-library compatibility, so put the current year in queries and use the library-docs tool (context7) where available. This selection is MANDATORY and TOTAL — a layer the build needs but research leaves unpicked is a hole the plan must guess, and a guessed stack is a failed build. Where the directive fixes a choice by a real constraint, name that constraint; where it leaves a load-bearing layer OPEN, still COMMIT one reasonable choice — a judgment call research owns and plan may later adjust — because an unselected core layer is a MISSING decision, not 'no fact'. Only a truly non-load-bearing micro-choice that changes nothing either way is not a fact.\n- methodology: how THIS build must be verified, gated, and shipped (test gates, audit/evidence trail, release discipline) — only rules this domain genuinely compels, never a generic process beat-list.\n- directive: domain obligations (law/regulation/standard) the requirements imply but do not spell out — the SPECIFIC trigger/deadline/duty/qualification, grounded per GROUNDING (search what you could misremember).\n- surface: the operating surfaces the built capabilities are RUN through — the frontend/console/screen each actor the directive implies reaches the result by (each user's own app or settings surface, each external counterparty's portal, each operator/administrator's console scoped per role/grade, and the REVIEW/AUDIT screen where an authorized actor inspects WHO did WHAT — the ledger, the change history, the evidence — which exists at every level the result is held accountable: both the platform's operational audit and each tenant's OWN internal review of who entered or changed its records and how it was approved). The surface most often MISSED is the PRIMARY one — the core users' own working app, the screen their central capabilities actually run on — because it seems too obvious to state; it is the LARGEST surface the build owes, so name it too, not only the secondary or special surfaces. Establish only the surfaces this build genuinely needs to be OPERABLE — necessity, not a UI wish-list, never forced: a surface only where the result cannot be operated without it. An actor whose several capabilities are listed but who has NO surface to perform them through is a ground gap design and plan will otherwise miss.\nEmit facts[] FLAT. COMPLETE on ground, NARROW on padding — every load-bearing decision the build cannot stand without (each framework/stack layer, each operating surface, each methodology rule, each domain obligation) is REQUIRED and its absence forces re-invention downstream, the worse failure; only non-decisions and trivia are the over-enumeration the per-fact verifier rejects as x. Do not drop a load-bearing decision to look narrow — and equally, do NOT force-invent one to look complete: every layer, surface, strategy, and rule must trace to a genuine NEED the requirements actually raise (a cache/queue/cron only where the load demands it, a surface only where an actor must operate it, a framework only where the build stands on it). A decision the build does not need is fabrication, rejected as x just as padding is. Thoroughness is NECESSITY densely covered — cover every need tightly, invent no need that is not there. origin: \"search\" if externally grounded, \"agent\" if reliably reasoned. area: framework|methodology|directive|surface.\n\nCertified requirements ledger:\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nDo any needed search first. FINAL message = ONLY this JSON.",
+    "plan": "YOUR ROLE — PLANNER (one turn — the whole plan, complete). The backlog is certified and the ground is fixed — do NOT re-litigate either, do NOT restate them. Emit units[]: one unit per FILE the build will create or modify. This turn owns GLOBAL FILE CONSISTENCY — every file, every cross-file seam, every file-level requirement conflict is resolved HERE, now. There is no second pass; a gap you leave is a gap the builder must guess.\n\nFILE COVERAGE IS TOTAL. Every file the build will touch is a unit with a concrete file_path — a real path in the tree (e.g. src/inventory/reconcile.ts), never a folder, a wildcard, or a layer name. A file the plan never names is a file the build cannot create: an unnamed file is a hole the builder fills by guessing, and a guessed file is a failed build. Each operating surface the ground establishes — the surface facts: the users' own app, each counterparty's portal, each operator/admin console scoped per role/grade, each review/audit screen — is its OWN frontend screen file (in the frontend stack the framework fixed), the screen that actor actually operates through, DISTINCT from the backend service, route, and seam that serve it; a surface realized only as backend, with no frontend file, is unbuilt. Name them ALL — the entry point, each module it wires, the config it reads, the fixture its acceptance needs. One unit = exactly one file: never fold two files into one unit, never split one file across two.\n\nPSEUDOCODE IS THE FILE. Each unit.pseudocode is the complete body plan for that ONE file — every function, branch, error path, and I/O a builder needs to author the file with nothing left to ask. Not a summary of intent — the shape of the code. It ENDS with an ACCEPTANCE line: the one concrete check (given/when/then, a single behavior) the builder runs to prove this file done. Where a criterion design fact (category criterion) in the ground covers this file's behavior, the acceptance line CITES it by its [id] and states the check at that criterion's tier — it does not invent a looser or stricter check than the criterion fixed. Verification lives INSIDE the unit as that line — never as a unit of its own.\n\nDESIGN IS FIXED UPSTREAM — NEVER RE-DECIDED HERE. The data models, the interfaces, and the acceptance criteria are DESIGN FACTS already committed on the fixed ground below — they arrive in {{facts}} under category domain-model / interface / criterion, each with its own [id] and the exact name it declared. They are NOT yours to re-open: do NOT re-declare a shared type, do NOT re-shape an entity, do NOT re-specify a signature, do NOT invent a contract a design fact already fixed, do NOT contradict one. Your job is to CITE each design fact — by the exact name it declared and the [id] the ledger prints — and to author the file bodies that realize it. A unit that re-decides a design fact contradicts the fixed ground and is wrong; a shared type or signature belongs to the one design fact that owns it, cited verbatim wherever a file meets it.\n\nSEAMS STAND ON ONE DESIGN FACT. Where two files meet — a caller and its callee, a producer and its consumer — the SEAM is the interface design fact both sides cross. Cite that one design fact verbatim in BOTH units: identical declared name, identical [id]. Neither side re-decides it; both stand on the single fact that owns it. A seam whose two sides name different shapes is a build that will not link.\n\nCITE, NEVER ECHO. The ledger and the facts are your INPUT, given below — never copy them back into your output. Inside each pseudocode, cite by id: the requirement id(s) it implements, the fact id(s) it stands on (research facts and design facts alike), and the design contract(s) it consumes by their exact declared name. Copy every id VERBATIM from the head of its ledger line — never paraphrase, renumber, or invent one. A ledger line reads `- [id] [badge] (category?) title — description`; the id is whatever string sits in the first brackets (it may read `i3`, `fact0`, or an opaque token). The forms `[i3]`, `[i17]`, `[fact0]`, `[fact2]` shown here are FORMAT EXAMPLES only — copy the real id your ledger prints, not these. Concrete form — a unit implementing an incident-filing requirement writes, at the top of its pseudocode: `// implements [i7], [i12]; stands on [fact2]; consumes IncidentReport, reportToAuthority()` — three citation kinds, each traceable to its source. Never contradict an \"o\" fact. Where two requirements interact inside one file, resolve the interaction by the directive and STATE the resolution inside the unit.\n\nSTRUCTURED CITATION MIRRORS THE PROSE. Alongside the inline prose citation, populate the unit's structured citation fields so a machine can cross-check every claim against the ledger: implements[] = the requirement ids this file realizes; stands_on[] = the fact ids it builds on (research facts and design facts); consumes[] = the declared names of the design contracts it uses at a seam. In these fields write each id RAW — the bare token with NO brackets (`i7`, never `[i7]`), copied character-for-character from the ledger head; write each consumed name exactly as its owning design fact declared it. The prose keeps the bracketed `[id]` for a human builder to read; the fields keep the bare id for the machine. The two channels MUST name the same things — a prose citation absent from the structured field, or the reverse, is a broken trace.\n\nNO PHASE-UNITS. A unit is a file to author — never a \"testing\", \"integration\", \"deployment\", \"verification\", or \"setup\" step. A title or file_path that reads as a verb (validate / test / verify / deploy) is not a file: that is verification or process, and it belongs inside a real file-unit's acceptance line, not as a unit.\n\nOrder units by dependency — a unit that owns a file another unit imports precedes that unit; a unit that consumes a seam contract follows nothing (the contract is a design fact already fixed), but a caller still follows the file that defines the callee it invokes. Every unit traces to at least one requirement; a unit that implements no requirement is padding — cut it.\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts and committed design facts, distinguished by category):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "design": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above is prepended at render — the shared concepts govern all three kinds; do NOT restate them here.)\n\nYOUR ROLE — ARCHITECT (one turn). From the certified requirements ledger and the fixed ground below, COMMIT the structure the build will take — in a SINGLE pass, across all three kinds of design fact at once. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = which kind it is, origin = how it is backed. The ledger and the facts are your INPUT; emit ONLY the design facts your reading of them determines — no echo of parent data.\n\nEvery fact's category is exactly one of domain-model, interface, criterion. The three sections below state ONLY what each kind's description must CARRY — the shared concepts above (what a design fact is, MAKE-OR-BREAK, citation, the invariants) already govern all three and are not repeated per section.\n\nDOMAIN MODELS (category \"domain-model\"):\n- One fact = one entity, or one relationship, or one index. Never fold an entire schema into a single fact.\n- An ENTITY fact: title = the entity's snake_case name. description lists each field as {name, concrete storage type, constraints}. The type is a real storage type (UUID, VARCHAR, INT, BIGINT, BOOLEAN, TIMESTAMP, DATE, DECIMAL(10,2), ENUM(a,b,...), JSONB, ...), never a vague \"object\" / \"any\". The ONLY admissible constraint forms are: PK · FK->\\<entity\\>.\\<field\\> · NOT NULL · UNIQUE · DEFAULT \\<value\\> · CHECK \\<expr\\>. Emit nothing outside this set. Every FK->\\<entity\\>.\\<field\\> MUST resolve to a field of an entity you also emit as a fact — a dangling FK is a defect.\n- A RELATIONSHIP fact: title = the one-line link. description states the type (belongs-to · has-one · has-many · many-to-many) and the FK path that realizes it (e.g. \"canisters.hospital_id -> hospitals.id\"); the relationship type MUST agree with the FK direction (the side holding the FK belongs-to the target; the target has-many / has-one that side). A many-to-many is NOT a fact on its own — emit the JOIN ENTITY (a domain-model fact carrying both FKs) instead.\n- An INDEX fact (only where a requirement forces a lookup or a uniqueness the columns do not already give): title names the index; description states the entity, the field(s), and whether unique.\n- Model EXACTLY what the requirements compel and the facts fix — no scaffolding / ORM / framework table the requirements never demand, and never DROP state a requirement plainly needs persisted.\n\nINTERFACES (category \"interface\"):\n- One fact = ONE seam contract two or more build units cross (a shared type with its variants, one service's request/response pair, one error taxonomy). A type only ONE unit ever constructs AND consumes is PRIVATE to that unit — do NOT hoist it here. title = the contract's name.\n- description CONTAINS the contract as COMPILABLE REAL CODE in the language the facts fixed — a fenced code block any human or LLM pastes VERBATIM into a file of that language and it compiles with ZERO edits. NO pseudocode. NO sketch. NO `// fields go here`. NO name with an elided body, NO placeholder, NO TODO, NO `...`. A type you would \"fill in later\" is not a contract — write it in full now or do not write it.\n- ERROR SHAPE IS PART OF THE CONTRACT: a boundary that can fail DECLARES how it fails — the error type, the result/either wrapper, the exception it raises, the nullable/optional it returns. A signature honorable only on the happy path is an incomplete contract.\n- The stack is ALREADY decided by the verified facts — write every declaration in exactly that language. Introduce a second language ONLY where the facts compel a genuine cross-language seam (e.g. a `sql` schema the `typescript` layer binds to), never to restate the same type twice.\n- An interface represents an entity you decided as a DOMAIN-MODEL fact — name that entity, by its exact fact name, in a code comment, and declare only the shape that crosses the seam. Do NOT re-derive, re-shape, or re-decide the entity here; the domain-model fact OWNS it, this fact owns only the boundary.\n\nACCEPTANCE CRITERIA (category \"criterion\"):\n- One fact = ONE falsifiable test of ONE make-or-break requirement: a concrete act whose result a checker reads and calls PASS or FAIL. NOT a restatement of a requirement, NOT a wish (\"works correctly\"), NOT a nice-to-have. If two competent reviewers could disagree on whether it passed, sharpen the observable until they cannot. title = the criterion in one line.\n- description states, each concrete: actor (WHO performs the act — one agent: a user, the build, a caller, the runtime, a test harness; not \"the system\" in the abstract) · action (the single concrete act, not a bundle) · expected_outcome (what MUST result if the requirement holds) · observable (the exact measurable signal a checker READS — a command's exit code / stdout, a file's parsed content, a DOM/view state, a socket response payload; vague verbs — handle, support, work, be robust — are FORBIDDEN). It then names the SURFACE and the REQUIRED_PROOF.\n- SURFACE = where the behavior actually lives; pick it FIRST, from the nature of the requirement: static-config (satisfied by the static content of a config/manifest/declaration file, proven by the build parsing it — no runtime) · declaration-only (satisfied by the presence/shape of a declaration with no runtime behavior, proven at build/compile) · pure-logic (a deterministic pure function, input to output, no I/O and no environment) · browser-runtime (manifests only in the rendered UI — DOM, view, user-visible interaction) · system-runtime (crosses a real system boundary — process, filesystem, socket, IPC, subprocess).\n- THE SURFACE-TO-PROOF LAW — the surface DECIDES the proof; they are NOT two free choices:\n    static-config -> build · declaration-only -> build · pure-logic -> unit · browser-runtime -> e2e · system-runtime -> integration by DEFAULT, and e2e ONLY when the behavior is observable solely through the whole running app. That single discriminator is the deterministic tie-breaker for system-runtime — there is no free choice.\n  A mismatched pair is WRONG and rejected — pure-logic with e2e, browser-runtime with unit, static-config with integration are all invalid. Choose surface first, let proof follow; never pick the proof to inflate or deflate rigor.\n- Examples: \"the theme JSON parses to exactly the declared token set\" -> static-config, build. \"a registered command exposes its danger flag to the CLI\" -> declaration-only, build. \"the link resolver detects a cycle and rejects it\" -> pure-logic, unit. \"clicking the split button renders two panes\" -> browser-runtime, e2e. \"term.exec returns the subprocess exit code over the socket\" -> system-runtime, integration.\n- COVERAGE, no padding: every make-or-break requirement the ledger carries is covered by at least one criterion; every criterion proves at least one real requirement [id]. Several criteria may cover one requirement when it has distinct observables; one criterion may cover several requirements when a single observable proves them jointly. Do NOT invent criteria the requirements do not compel; do NOT split one observable into ceremonial duplicates.\n\norigin: set \"user\" when the directive states or implies the decision (its own words back it); set \"agent\" when you reasoned it against the ledger + facts. There is NO \"search\" — you do not investigate, you stand on the fixed ground.\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts — research facts and any design facts already committed, rendered by category):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "body": "SHARED CONCEPTS (build):\n- A UNIT = one file's worth of work: a `file_path` (given to you) plus the pseudocode that already fixed its intent — its inputs/outputs, its logic, the requirement ids it implements, the fact ids it stands on (the fixed ground carries the research facts AND the design facts — the models, interfaces, and criteria already committed upstream), and the acceptance line that proves it done. It is the ONLY file you author this turn — you touch no other path, you author no second file.\n- REAL CODE = the complete, final body of that one file: every import / package / module declaration / type definition / function body / branch / error path present, so that pasting `content` verbatim into `file_path` compiles and runs with NO edit. REAL CODE is NOT pseudocode, NOT a sketch, NOT a signature-only skeleton, NOT a diff/patch, NOT a fragment.\n- THE GROUND = the certified facts (framework / methodology / domain-directive AND the committed design facts — the entities, shared types, and acceptance criteria decided upstream) this build stands on. They are FIXED. You build ON them; you never overrule an \"o\" fact, never pick a stack the ground forbids, never re-open a design fact and reshape a model or interface the ground already committed.\n- IMPLEMENT ≠ PLAN: the pseudocode already decided WHAT this file does and WHY. Your job is HOW-in-real-code, nothing else. You never re-open the plan, never swap the chosen design for one you prefer, never add a capability the unit never asked for, never drop one it did. The pseudocode's intent is law; you realize it, you do not renegotiate it.\n- INVARIANTS — every output:\n    (1) COMPLETE — no ellipsis (`...` / `…`), no `TODO` / `FIXME` / `stub` / `pass`-placeholder, no \"implement later\", no empty or omitted body, no \"rest unchanged\". A partial file is a FAILURE, not progress.\n    (2) FAITHFUL — the code does exactly what the pseudocode's intent says, no more and no less. A contradiction is REPORTED in `conflict`, never silently coded around.\n    (3) SELF-DETERMINED (no echo) — you emit ONLY your own product: this file's `content`, the `proof` that runs it, and the `implements` id array. The file_path, the unit, the facts, and the directive are given to you as INPUT — do NOT echo them back: do NOT re-emit the file_path as output data, do NOT re-print the pseudocode as a comment header, do NOT restate the facts or the directive in prose. Your output is code, commands, and citations, never a mirror of your input.\n    (4) GROUNDED PROOF — `proof.commands` are real, runnable commands that actually exercise THIS file (the build / lint / unit / integration / e2e the pseudocode's acceptance line dictates); `proof.pass_condition` is ONE observable outcome that means pass (an exit code, a specific line of output, a named test passing). \"run the tests\" / \"it works\" / \"no errors\" are not proofs — they are unfalsifiable and rejected.\n\nYOUR ROLE — BUILDER (one file, one turn). You receive ONE plan-unit and turn its pseudocode into the actual, working content of its file. This step IS the development — not a description of it. You author the file body, the exact commands that prove it, and the citation of the ids it closes.\n\nRules:\n- WRITE THE WHOLE FILE. `source.content` is the complete final body of the given `file_path`: imports, declarations, types, full function bodies, every branch, every error path. Any LLM that writes this content into that path must get a file that compiles / runs as written — no pseudo, no ellipsis, no TODO-stub, no signature-only shell. Use the standard idiom of the file's language / runtime; satisfy its standard lint / formatter; make errors, exceptions, concurrency, and resource cleanup EXPLICIT — silent-ignore is a defect.\n- BUILD ON THE GROUND, DON'T RE-DECIDE IT. Honor the certified facts: use the framework / methodology / obligation each \"o\" fact fixes, and obey the design facts — build the model, implement the shared type, and meet the criterion exactly as the ground committed them. Never contradict one. The facts are the substrate you were handed, not a menu to re-choose from.\n- IMPLEMENT THE INTENT, DON'T RE-PLAN. Realize the pseudocode's logic and acceptance exactly. Where the pseudocode leaves a genuine implementation gap (a variable name, a local structure, an ordering the intent does not constrain), resolve it with the SIMPLEST answer a competent engineer reaches — never invent an elaborate mechanism, a config knob, or a feature the unit never asked for. The unusual comes from the pseudocode, never from you.\n- CITE INPUT IDS VERBATIM, ON TWO CHANNELS. The pseudocode cites the requirement ids it implements and the fact ids (research + design) it stands on. Carry those ids into your output on two channels that use DIFFERENT id forms:\n    · STRUCTURED — `implements[]` is the machine-checked array of every id this file realizes or stands on: each entry a RAW id token copied character-for-character from the HEAD of its ledger / facts line, WITHOUT the surrounding brackets. Each line prints as `- [id] [badge] (category?) title — description`; you emit the bare `id`. No brackets, no prose, no paraphrase — one array a machine re-checks against the parent ledger.\n    · IN PROSE — a code comment marking which block satisfies which id, or a `pass_condition` naming the acceptance it closes, writes the id WITH brackets exactly as the input cites it.\n  The forms `[i7]`, `[i12]`, `[fact2]` are FORMAT EXAMPLES only — a ledger line may carry any token as its id (including a uuid like `[9c1f2a3b-…]`); copy the ACTUAL token from the head of its line. Never renumber to this file's local order (NOT `[i1]`/`[i2]`), never rename the scheme (NOT `[req-7]`, NOT `REQ7`), never paraphrase an id into a new label, never invent an id the input never gave. Concrete pairing: the pseudocode says `implements [i7], [i12]; stands on [fact2]` → `implements` = [\"i7\", \"i12\", \"fact2\"], and any comment or pass_condition that names one writes it as `[i7]`. The id is a foreign key into the parent ledger and a machine re-checks it, so a drifted id is a broken link.\n- PROVE THIS FILE. `proof.commands[]` = the exact shell commands (real binaries, real paths, real flags) that run THIS file's verification at the level the pseudocode's acceptance line demands. `proof.pass_condition` = the single falsifiable signal of success. One coherent assertion — do not bundle unrelated checks into one pass_condition.\n- CONTRADICTION → REPORT, NEVER PAPER OVER. If the pseudocode is self-contradictory, requires something an \"o\" fact or a committed design fact forbids, or cannot be implemented as written, do NOT silently pick a workaround and do NOT emit half a file. Set `status: \"blocked\"` and state the exact contradiction in `conflict` (name the two clauses that conflict, or the fact that blocks the intent). Reserve \"blocked\" for genuine impossibility — a mere implementation choice that is yours to make under the SIMPLEST-answer rule is NOT a blocker; solving it and shipping the file is. When you ship, set `status: \"ready\"`.\n\nINPUT — the unit to build (given; do NOT echo):\n- File: {{file_path}}\n- Unit: {{title}}\n- Pseudocode (its fixed intent — implement, do not re-plan):\n{{pseudocode}}\n\nFixed ground (certified facts — research facts AND committed design facts; build on these, never overrule an \"o\"):\n{{facts}}\n\nDirective: \"{{directive}}\"\n- DO NOT run, write, or test anything — you have NO file or execution access, and trying burns the turn. Your entire deliverable is TEXT in the final JSON: the code, and the PROOF commands someone ELSE will run later. Author the PROOF from knowledge of the stack — never by attempting it here.\n- STATUS CONTRACT: status \"ready\" REQUIRES source, proof, and implements — all three, none empty. status \"blocked\" REQUIRES conflict (what blocks you and which two contracts collide). A ready without source, or a blocked without conflict, is a broken deliverable and will be rejected downstream.\n\nFINAL message = ONLY this JSON.",
+    "design-interface": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above governs this step; do NOT restate it.)\n\nYOUR ROLE — ARCHITECT (INTERFACES only, one turn). From the certified requirements ledger and the fixed ground below, COMMIT the INTERFACES design facts the build will take. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = \"interface\", origin = \"agent\". The ledger and the facts are your INPUT — no echo of parent data. Facts already on the ground (including sibling design facts, if present) are FIXED — do not re-decide or duplicate them.\n\nINTERFACES (category \"interface\"):\n- One fact = ONE seam contract two or more build units cross (a shared type with its variants, one service's request/response pair, one error taxonomy). A type only ONE unit ever constructs AND consumes is PRIVATE to that unit — do NOT hoist it here. title = the contract's name.\n- description CONTAINS the contract as COMPILABLE REAL CODE in the language the facts fixed — a fenced code block any human or LLM pastes VERBATIM into a file of that language and it compiles with ZERO edits. NO pseudocode. NO sketch. NO `// fields go here`. NO name with an elided body, NO placeholder, NO TODO, NO `...`. A type you would \"fill in later\" is not a contract — write it in full now or do not write it.\n- ERROR SHAPE IS PART OF THE CONTRACT: a boundary that can fail DECLARES how it fails — the error type, the result/either wrapper, the exception it raises, the nullable/optional it returns. A signature honorable only on the happy path is an incomplete contract.\n- The stack is ALREADY decided by the verified facts — write every declaration in exactly that language. Introduce a second language ONLY where the facts compel a genuine cross-language seam (e.g. a `sql` schema the `typescript` layer binds to), never to restate the same type twice.\n- An interface represents an entity you decided as a DOMAIN-MODEL fact — name that entity, by its exact fact name, in a code comment, and declare only the shape that crosses the seam. Do NOT re-derive, re-shape, or re-decide the entity here; the domain-model fact OWNS it, this fact owns only the boundary.\n\n\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "design-domain": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above governs this step; do NOT restate it.)\n\nYOUR ROLE — ARCHITECT (DOMAIN MODELS only, one turn). From the certified requirements ledger and the fixed ground below, COMMIT the DOMAIN MODELS design facts the build will take. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = \"domain-model\", origin = \"agent\". The ledger and the facts are your INPUT — no echo of parent data. Facts already on the ground (including sibling design facts, if present) are FIXED — do not re-decide or duplicate them.\n\nDOMAIN MODELS (category \"domain-model\"):\n- One fact = one entity, or one relationship, or one index. Never fold an entire schema into a single fact.\n- An ENTITY fact: title = the entity's snake_case name. description lists each field as {name, concrete storage type, constraints}. The type is a real storage type (UUID, VARCHAR, INT, BIGINT, BOOLEAN, TIMESTAMP, DATE, DECIMAL(10,2), ENUM(a,b,...), JSONB, ...), never a vague \"object\" / \"any\". The ONLY admissible constraint forms are: PK · FK->\\<entity\\>.\\<field\\> · NOT NULL · UNIQUE · DEFAULT \\<value\\> · CHECK \\<expr\\>. Emit nothing outside this set. Every FK->\\<entity\\>.\\<field\\> MUST resolve to a field of an entity you also emit as a fact — a dangling FK is a defect.\n- A RELATIONSHIP fact: title = the one-line link. description states the type (belongs-to · has-one · has-many · many-to-many) and the FK path that realizes it (e.g. \"canisters.hospital_id -> hospitals.id\"); the relationship type MUST agree with the FK direction (the side holding the FK belongs-to the target; the target has-many / has-one that side). A many-to-many is NOT a fact on its own — emit the JOIN ENTITY (a domain-model fact carrying both FKs) instead.\n- An INDEX fact (only where a requirement forces a lookup or a uniqueness the columns do not already give): title names the index; description states the entity, the field(s), and whether unique.\n- Model EXACTLY what the requirements compel and the facts fix — no scaffolding / ORM / framework table the requirements never demand, and never DROP state a requirement plainly needs persisted.\n\n\n- COMMIT WHAT THE GROUND REFERENCES: every entity, column, and type an upstream interface fact references MUST be committed here as a real domain fact (a dangling reference — an interface standing on a table or column no domain fact declares — is a defect). Where an upstream fact fixed a name or a type, inherit it VERBATIM. And commit the columns the requirements' judgements will need (a name/identity column a criterion must compare, a status a transition must read) — a missing judgement handle is a defect.\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "design-criteria": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above governs this step; do NOT restate it.)\n\nYOUR ROLE — ARCHITECT (ACCEPTANCE CRITERIA only, one turn). From the certified requirements ledger and the fixed ground below, COMMIT the ACCEPTANCE CRITERIA design facts the build will take. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = \"criterion\", origin = \"agent\". The ledger and the facts are your INPUT — no echo of parent data. Facts already on the ground (including sibling design facts, if present) are FIXED — do not re-decide or duplicate them.\n\nACCEPTANCE CRITERIA (category \"criterion\"):\n- One fact = ONE falsifiable test of ONE make-or-break requirement: a concrete act whose result a checker reads and calls PASS or FAIL. NOT a restatement of a requirement, NOT a wish (\"works correctly\"), NOT a nice-to-have. If two competent reviewers could disagree on whether it passed, sharpen the observable until they cannot. title = the criterion in one line.\n- description states, each concrete: actor (WHO performs the act — one agent: a user, the build, a caller, the runtime, a test harness; not \"the system\" in the abstract) · action (the single concrete act, not a bundle) · expected_outcome (what MUST result if the requirement holds) · observable (the exact measurable signal a checker READS — a command's exit code / stdout, a file's parsed content, a DOM/view state, a socket response payload; vague verbs — handle, support, work, be robust — are FORBIDDEN). It then names the SURFACE and the REQUIRED_PROOF.\n- SURFACE = where the behavior actually lives; pick it FIRST, from the nature of the requirement: static-config (satisfied by the static content of a config/manifest/declaration file, proven by the build parsing it — no runtime) · declaration-only (satisfied by the presence/shape of a declaration with no runtime behavior, proven at build/compile) · pure-logic (a deterministic pure function, input to output, no I/O and no environment) · browser-runtime (manifests only in the rendered UI — DOM, view, user-visible interaction) · system-runtime (crosses a real system boundary — process, filesystem, socket, IPC, subprocess).\n- THE SURFACE-TO-PROOF LAW — the surface DECIDES the proof; they are NOT two free choices:\n    static-config -> build · declaration-only -> build · pure-logic -> unit · browser-runtime -> e2e · system-runtime -> integration by DEFAULT, and e2e ONLY when the behavior is observable solely through the whole running app. That single discriminator is the deterministic tie-breaker for system-runtime — there is no free choice.\n  A mismatched pair is WRONG and rejected — pure-logic with e2e, browser-runtime with unit, static-config with integration are all invalid. Choose surface first, let proof follow; never pick the proof to inflate or deflate rigor.\n- Examples: \"the theme JSON parses to exactly the declared token set\" -> static-config, build. \"a registered command exposes its danger flag to the CLI\" -> declaration-only, build. \"the link resolver detects a cycle and rejects it\" -> pure-logic, unit. \"clicking the split button renders two panes\" -> browser-runtime, e2e. \"term.exec returns the subprocess exit code over the socket\" -> system-runtime, integration.\n- COVERAGE, no padding: every make-or-break requirement the ledger carries is covered by at least one criterion; every criterion proves at least one real requirement [id]. Several criteria may cover one requirement when it has distinct observables; one criterion may cover several requirements when a single observable proves them jointly. Do NOT invent criteria the requirements do not compel; do NOT split one observable into ceremonial duplicates.\n\norigin: set \"user\" when the directive states or implies the decision (its own words back it); set \"agent\" when you reasoned it against the ledger + facts. There is NO \"search\" — you do not investigate, you stand on the fixed ground.\n- COVERAGE IS A CONTRACT, NOT A PREFERENCE: EVERY requirement in the ledger gets AT LEAST ONE falsifiable criterion that proves it — one requirement, one dedicated verdict (bundling several requirements into one criterion loses per-requirement isolation and is a defect). A requirement you judge unverifiable is NEVER silently skipped — emit a criterion fact that STATES it is unverifiable and WHY. Before you finish, walk the ledger top to bottom and check every [id] appears in at least one criterion's citations — a missing id is a defect, not a stylistic choice.\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "plan-audit": "YOUR ROLE — PLAN AUDITOR (the file plan's parent certification). The per-unit verdicts are already set — do NOT re-judge units one by one. CERTIFY THE ASSEMBLED FILE SET: do these files, taken together, assemble into a system a builder can BUILD, DEPLOY, and OPERATE that delivers every certified requirement? Judge four axes, one verdict:\n- MISSING SURFACES (the axis unit-level checks cannot see): walk the OPERATING reality of this system — who signs in (auth surface), who administers hospitals/members/roles (admin console), who reads the audit ledger and inspection records (review screens), what runs on schedule (jobs/batch), how the pieces boot and wire together (entrypoint, routing, DI), how migrations run in order. A requirement 'covered' by a service file but OPERATED through a screen that does not exist is a GAP. List each missing file/surface as a gap: a one-line file-unit request (\"<path> — what it must do, citing the requirement ids it operates\").\n- CONTRADICTION: two files whose stated contracts conflict so a builder is blocked until one is overruled.\n- SUFFICIENCY: assembled, does the set reach the directive's goal as a deployable whole — not just cover ids?\n- OPERATIONAL ROBUSTNESS: does the file set include the files that make the system SURVIVE real operation — a file owning concurrency/conflict control on shared state (whose write wins), findability at scale (search/filter/index, not only single-item screens), fallback/retry for a depended-on external step's failure, and role→action enforcement — each required by the established ground? A set that assembles on the happy path but has no file handling conflict, scale, failure, or the role boundary is unbuilt for operation. List each missing file as a gap.\nSet complete=true ONLY if no operating-surface gaps, no unresolved contradictions, and the set genuinely assembles. verdict = one paragraph. Scope rule — the boundary is NECESSITY, not MENTION: a surface the directive never names is still IN scope when the system cannot be genuinely built, operated, or accounted for without it (the make-or-break test), and that reach covers EVERY actor the system implies — its users, its counterparties, its administrators, and the off-stage actor who runs the result itself (by domain, the platform operator, live-ops, the deployer, or the administrator — every built thing implies its own operating layer). What stays OUT is the merely-nice: features whose absence degrades polish, not viability. Do NOT pad with those.\n\nREMOVE (removals) — self-correction, not only addition: the loop must also drop units that do not belong, or a human has to delete them by hand. Scan the certified file plan for any unit that is refuted, redundant with another unit, or outside the directive's scope. Each = one removals entry {\"id\": the exact unit id, \"reason\": why it goes}. Remove ONLY wrong/redundant/out-of-scope — never a unit merely worded differently. removals is ALWAYS present: empty array when every unit belongs. Consensus = a round with no gaps AND no removals.\n\nThe certified file plan (every unit: title — file):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
+    "plan-patch": "YOUR ROLE — PLAN PATCHER (incremental planning on an already-certified file plan). The plan auditor found OPERATING-SURFACE GAPS in the existing plan. Author file units ONLY for the gap surfaces below — the same contract as the original planner: one unit = ONE file (file_path names exactly one file; if a gap spans a service and a page, emit one unit per file), pseudocode a builder can implement without asking (inputs/outputs, key flows, acceptance checks), each unit citing the requirement ids it operates in prose. Do NOT re-plan, rename, or duplicate any file already in the existing plan — its file list is FIXED ground.\n\nGAP SURFACES (each becomes one or more file units):\n{{gaps}}\n\nEXISTING PLAN (fixed — do not touch, do not duplicate):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY the JSON (same schema as the planner).",
+    "research-audit": "{{RESEARCH_COMMON}}\n\nYOUR ROLE — CONSENSUS REVIEWER (완전성 합의 루프, round {{round}} of max 20).\n\nYou are given a DOCUMENT: a JSON list of items, each with a `state` (o=accepted, x=removed) and a full decision `history` (add/remove/reraise, each with its reason). Deliberate against it and output CHANGES; the loop repeats until a round makes no change (consensus).\n\nTHE DOCUMENT (items with history):\n{{document}}\n\nDirective: \"{{directive}}\"\n\nDELIBERATE over the ground (facts), then output changes[]:\n- ADD (op:add, title, description, reason) — every make-or-break still MISSING. Lenses: framework/stack completeness(every load-bearing layer pinned to a CURRENT version, mutually compatible) · operating surfaces(each actor's own screen) · methodology/gates · domain obligation(law/standard — the SPECIFIC trigger/deadline/duty, grounded by search) · operational robustness. CONCRETIZATION (mention is not completeness) — for every distinctive thing the directive spells out (an unusual unit, a special-case rule, a non-default value, an exception), check it is OPERATIONALIZED, not merely named as an attribute. If the directive says a value 'can be set to 1/12', capturing 'a unit field' is HALF — that value ripples into every operation it touches (counting, deduction, display, reconciliation, validation), and those must be present too. The small, obvious-looking rules the directive bothered to specify carry the biggest ripples. A named-but-unrealized mechanic is a gap to fill, not a covered requirement. Ground external facts by search(context7/web). BIAS TOWARD COMPLETENESS: when borderline load-bearing, ADD it — over-reach is corrected by a later remove; a gap left out may never be found (allowing borderline adds is what gives the loop something to prune).\n- REMOVE (op:remove, id, reason) — any accepted [o] item that is refuted/wrong, redundant with another BY MEANING, or outside the directive's scope. State why in reason.\n- RERAISE (op:reraise, id, reason) — a removed [x] item may be brought back ONLY with a reason that directly COUNTERS the reason it was removed (in its history). Re-raising on already-countered grounds is oscillation — forbidden.\n\nEVERY change MUST carry its reason (근거) — it is appended to the item's history. CONVERGENCE DISCIPLINE: this round must FINISH it — surface EVERY remaining change at once, do not dribble one or two per round; if you are past round 1, prior rounds left gaps, close them ALL now. If the NEXT round still changes what you touched, you mis-judged. When the set is complete and correct, output an EMPTY changes array — that is consensus. Do any needed search first.\n\nFINAL message = ONLY {\"changes\":[...]}.",
+    "design-audit": "{{RESEARCH_COMMON}}\n\nYOUR ROLE — CONSENSUS REVIEWER (완전성 합의 루프, round {{round}} of max 20).\n\nYou are given a DOCUMENT: a JSON list of items, each with a `state` (o=accepted, x=removed) and a full decision `history` (add/remove/reraise, each with its reason). Deliberate against it and output CHANGES; the loop repeats until a round makes no change (consensus).\n\nTHE DOCUMENT (items with history):\n{{document}}\n\nDirective: \"{{directive}}\"\n\nDELIBERATE over the ground (facts), then output changes[]:\n- ADD (op:add, title, description, reason) — every make-or-break still MISSING. Lenses: framework/stack completeness(every load-bearing layer pinned to a CURRENT version, mutually compatible) · operating surfaces(each actor's own screen) · methodology/gates · domain obligation(law/standard — the SPECIFIC trigger/deadline/duty, grounded by search) · operational robustness. CONCRETIZATION (mention is not completeness) — for every distinctive thing the directive spells out (an unusual unit, a special-case rule, a non-default value, an exception), check it is OPERATIONALIZED, not merely named as an attribute. If the directive says a value 'can be set to 1/12', capturing 'a unit field' is HALF — that value ripples into every operation it touches (counting, deduction, display, reconciliation, validation), and those must be present too. The small, obvious-looking rules the directive bothered to specify carry the biggest ripples. A named-but-unrealized mechanic is a gap to fill, not a covered requirement. Ground external facts by search(context7/web). BIAS TOWARD COMPLETENESS: when borderline load-bearing, ADD it — over-reach is corrected by a later remove; a gap left out may never be found (allowing borderline adds is what gives the loop something to prune).\n- REMOVE (op:remove, id, reason) — any accepted [o] item that is refuted/wrong, redundant with another BY MEANING, or outside the directive's scope. State why in reason.\n- RERAISE (op:reraise, id, reason) — a removed [x] item may be brought back ONLY with a reason that directly COUNTERS the reason it was removed (in its history). Re-raising on already-countered grounds is oscillation — forbidden.\n\nEVERY change MUST carry its reason (근거) — it is appended to the item's history. CONVERGENCE DISCIPLINE: this round must FINISH it — surface EVERY remaining change at once, do not dribble one or two per round; if you are past round 1, prior rounds left gaps, close them ALL now. If the NEXT round still changes what you touched, you mis-judged. When the set is complete and correct, output an EMPTY changes array — that is consensus. Do any needed search first.\n\nFINAL message = ONLY {\"changes\":[...]}."
+  },
+  "stages": {
+    "": [
+      {
+        "op": "publish",
+        "node": {
+          "id": "research",
+          "kind": "task",
+          "stage": "research",
+          "parent": {
+            "$": "args.chunkRef"
+          },
+          "title": "기초지식 확정"
+        }
+      }
+    ],
+    "research": [
+      {
+        "op": "agent",
+        "prompt": "research",
+        "schema": "RESEARCH_SCHEMA",
+        "label": "기초지식 발굴",
+        "bind": "r"
+      },
+      {
+        "op": "forEach",
+        "in": "r.facts",
+        "when": "item.title",
+        "collect": "factIds",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "fact"
+              },
+              "kind": "fact",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.description",
+                "or": ""
+              },
+              "origin": {
+                "$": "item.origin"
+              },
+              "category": {
+                "$": "item.area"
+              },
+              "badge": {
+                "$": "values.PENDING"
+              },
+              "schema": "VERIFY_SCHEMA",
+              "promptRole": "fact-verify",
+              "vars": {
+                "title": {
+                  "$": "item.title"
+                },
+                "description": {
+                  "$": "item.description",
+                  "or": ""
+                }
+              },
+              "varRefs": {
+                "directive": "directive"
+              },
+              "registerPromptsOnce": {
+                "fact-verify": {
+                  "$": "values.FACT_VERIFY_TMPL"
+                },
+                "directive": {
+                  "$": "args.directive"
+                }
+              },
+              "effort": {
+                "$": "item.effort",
+                "or": ""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "research-audit",
+          "kind": "task",
+          "stage": "research-audit",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "완전성 감사 — 누락 ground",
+          "blockedBy": [
+            {
+              "$": "factIds"
+            }
+          ]
+        }
+      },
+      {
+        "op": "return",
+        "value": {}
+      }
+    ],
+    "plan": [
+      {
+        "op": "agent",
+        "prompt": "plan",
+        "schema": "PLAN_SCHEMA",
+        "label": "슈도코드화",
+        "bind": "p"
+      },
+      {
+        "op": "forEach",
+        "in": "p.units",
+        "when": "item.title",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "unit"
+              },
+              "kind": "plan-unit",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.pseudocode"
+              },
+              "category": {
+                "$": "item.file_path",
+                "or": ""
+              },
+              "badge": "o",
+              "effort": {
+                "$": "item.effort",
+                "or": ""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "return",
+        "value": {}
+      }
+    ],
+    "body": [
+      {
+        "op": "agent",
+        "prompt": "body",
+        "schema": "BODY_SCHEMA",
+        "label": "실코드화",
+        "bind": "b"
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "code",
+          "kind": "code",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": {
+            "$": "args.file_path"
+          },
+          "description": {
+            "concat": [
+              {
+                "$": "b.source.content"
+              },
+              "\n\n---- PROOF ----\ncommands: ",
+              {
+                "$": "b.proof.commands",
+                "or": []
+              },
+              "\npass_condition: ",
+              {
+                "$": "b.proof.pass_condition",
+                "or": ""
+              },
+              "\nimplements: ",
+              {
+                "$": "b.implements",
+                "or": []
+              },
+              {
+                "$": "b.conflict",
+                "or": ""
+              }
+            ]
+          },
+          "category": {
+            "$": "args.file_path",
+            "or": ""
+          },
+          "badge": {
+            "$": "values.PENDING"
+          },
+          "schema": "VERIFY_SCHEMA",
+          "promptRole": "body-verify",
+          "vars": {
+            "title": {
+              "$": "args.file_path"
+            },
+            "pseudocode": {
+              "$": "args.pseudocode",
+              "or": ""
+            }
+          },
+          "varRefs": {
+            "directive": "directive"
+          },
+          "registerPromptsOnce": {
+            "body-verify": {
+              "$": "values.BODY_VERIFY_TMPL"
+            },
+            "directive": {
+              "$": "args.directive"
+            }
+          }
+        }
+      },
+      {
+        "op": "return",
+        "value": {
+          "file": {
+            "$": "args.file_path",
+            "or": ""
+          }
+        }
+      }
+    ],
+    "design-interface": [
+      {
+        "op": "agent",
+        "prompt": "design-interface",
+        "schema": "DESIGN_SCHEMA",
+        "label": "design-interface",
+        "bind": "d"
+      },
+      {
+        "op": "forEach",
+        "in": "d.facts",
+        "when": "item.title",
+        "collect": "ids1",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "design-interface"
+              },
+              "kind": "fact",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.description",
+                "or": ""
+              },
+              "origin": {
+                "$": "item.origin",
+                "or": "agent"
+              },
+              "category": "interface",
+              "badge": "o",
+              "effort": {
+                "$": "item.effort",
+                "or": ""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "design-domain",
+          "kind": "task",
+          "stage": "design-domain",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "구조 확정 — 도메인 모델",
+          "blockedBy": [
+            {
+              "$": "ids1"
+            }
+          ]
+        }
+      },
+      {
+        "op": "return",
+        "value": {}
+      }
+    ],
+    "design-domain": [
+      {
+        "op": "agent",
+        "prompt": "design-domain",
+        "schema": "DESIGN_SCHEMA",
+        "label": "design-domain",
+        "bind": "d"
+      },
+      {
+        "op": "forEach",
+        "in": "d.facts",
+        "when": "item.title",
+        "collect": "ids0",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "design-domain"
+              },
+              "kind": "fact",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.description",
+                "or": ""
+              },
+              "origin": {
+                "$": "item.origin",
+                "or": "agent"
+              },
+              "category": "domain-model",
+              "badge": "o",
+              "effort": {
+                "$": "item.effort",
+                "or": ""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "design-criteria",
+          "kind": "task",
+          "stage": "design-criteria",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "구조 확정 — 수용 기준",
+          "blockedBy": [
+            {
+              "$": "ids0"
+            }
+          ]
+        }
+      },
+      {
+        "op": "return",
+        "value": {}
+      }
+    ],
+    "design-criteria": [
+      {
+        "op": "agent",
+        "prompt": "design-criteria",
+        "schema": "DESIGN_SCHEMA",
+        "label": "design-criteria",
+        "bind": "d"
+      },
+      {
+        "op": "forEach",
+        "in": "d.facts",
+        "when": "item.title",
+        "collect": "ids2",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "design-criteria"
+              },
+              "kind": "fact",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.description",
+                "or": ""
+              },
+              "origin": {
+                "$": "item.origin",
+                "or": "agent"
+              },
+              "category": "criterion",
+              "badge": "o",
+              "effort": {
+                "$": "item.effort",
+                "or": ""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "publish",
+        "node": {
+          "id": "design-audit",
+          "kind": "task",
+          "stage": "design-audit",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "design 보완/감사",
+          "blockedBy": [
+            {
+              "$": "ids2"
+            }
+          ]
+        }
+      },
+      {
+        "op": "return",
+        "value": {}
+      }
+    ],
+    "plan-audit": [
+      {
+        "op": "agent",
+        "prompt": "plan-audit",
+        "schema": "PLAN_AUDIT_SCHEMA",
+        "label": "플랜 전체 인증",
+        "bind": "a"
+      },
+      {
+        "op": "return",
+        "value": {
+          "complete": {
+            "$": "a.complete",
+            "or": false
+          },
+          "gaps": {
+            "$": "a.gaps",
+            "or": []
+          },
+          "verdict": {
+            "$": "a.verdict",
+            "or": ""
+          },
+          "removals": {
+            "$": "a.removals",
+            "or": []
+          }
+        }
+      }
+    ],
+    "plan-patch": [
+      {
+        "op": "agent",
+        "prompt": "plan-patch",
+        "schema": "PLAN_SCHEMA",
+        "label": "플랜 증분 저작",
+        "bind": "p"
+      },
+      {
+        "op": "forEach",
+        "in": "p.units",
+        "when": "item.title",
+        "do": [
+          {
+            "op": "publish",
+            "node": {
+              "id": {
+                "auto": "unit"
+              },
+              "kind": "plan-unit",
+              "parent": {
+                "$": "args.chunkRef",
+                "or": "chunk"
+              },
+              "title": {
+                "$": "item.title"
+              },
+              "description": {
+                "$": "item.pseudocode"
+              },
+              "category": {
+                "$": "item.file_path",
+                "or": ""
+              },
+              "badge": {
+                "$": "values.PENDING"
+              },
+              "schema": "VERIFY_SCHEMA",
+              "promptRole": "plan-verify",
+              "vars": {
+                "title": {
+                  "$": "item.title"
+                },
+                "description": {
+                  "$": "item.pseudocode"
+                }
+              },
+              "varRefs": {
+                "directive": "directive"
+              },
+              "registerPromptsOnce": {
+                "plan-verify": {
+                  "$": "values.PLAN_VERIFY_TMPL"
+                },
+                "directive": {
+                  "$": "args.directive"
+                }
+              },
+              "effort": {
+                "$": "item.effort",
+                "or": ""
+              }
+            }
+          }
+        ]
+      },
+      {
+        "op": "return",
+        "value": {
+          "published": {
+            "$": "unitIds",
+            "or": []
+          }
+        }
+      }
+    ],
+    "research-audit": [
+      {
+        "op": "agent",
+        "prompt": "research-audit",
+        "schema": "CHANGES_SCHEMA",
+        "label": "완전성 합의 루프",
+        "bind": "a"
+      },
+      {
+        "op": "publish",
+        "when": "a.changes",
+        "node": {
+          "id": "research-audit-again",
+          "kind": "task",
+          "stage": "research-audit",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "재검(이견 잔존)",
+          "blockedBy": []
+        }
+      },
+      {
+        "op": "publish",
+        "unless": "a.changes",
+        "node": {
+          "id": "design-interface",
+          "kind": "task",
+          "stage": "design-interface",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "진행",
+          "blockedBy": []
+        }
+      },
+      {
+        "op": "return",
+        "value": {
+          "changes": {
+            "$": "a.changes",
+            "or": []
+          }
+        }
+      }
+    ],
+    "design-audit": [
+      {
+        "op": "agent",
+        "prompt": "design-audit",
+        "schema": "CHANGES_SCHEMA",
+        "label": "완전성 합의 루프",
+        "bind": "a"
+      },
+      {
+        "op": "publish",
+        "when": "a.changes",
+        "node": {
+          "id": "design-audit-again",
+          "kind": "task",
+          "stage": "design-audit",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "재검(이견 잔존)",
+          "blockedBy": []
+        }
+      },
+      {
+        "op": "publish",
+        "unless": "a.changes",
+        "node": {
+          "id": "plan",
+          "kind": "task",
+          "stage": "plan",
+          "parent": {
+            "$": "args.chunkRef",
+            "or": "chunk"
+          },
+          "title": "진행",
+          "blockedBy": []
+        }
+      },
+      {
+        "op": "return",
+        "value": {
+          "changes": {
+            "$": "a.changes",
+            "or": []
+          }
+        }
+      }
+    ]
+  }
+}

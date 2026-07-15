@@ -1,0 +1,9 @@
+/target/
+/dist/
+/.dependency/
+.DS_Store
+stores/
+specs/
+adv/
+adv_novel/
+review/

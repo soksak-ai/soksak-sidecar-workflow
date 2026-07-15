@@ -1,0 +1,26 @@
+{
+  "domain": "travel",
+  "triggers": ["여행", "travel", "trip", "투어", "tour", "일정", "여정", "itinerary", "관광", "백패킹", "출장"],
+  "directives": [
+    {
+      "id": "travel-itinerary-day",
+      "directive": "일자별 일정(이동 구간·체류지·식사·액티비티)으로 분해한다. 이동 시간 미반영 일정 금지.",
+      "rationale": "여행의 실현 가능성은 일자별 이동·체류 시간 정합에서 갈린다."
+    },
+    {
+      "id": "travel-budget",
+      "directive": "예산을 항목별(교통·숙박·식비·액티비티·예비비)로 분해하고 총액을 명시한다.",
+      "rationale": "항목 분해 없는 총액은 초과 지출의 원인이다."
+    },
+    {
+      "id": "travel-booking-deadline",
+      "directive": "항공·숙소·티켓의 예약 마감일과 취소·환불 정책을 추적한다.",
+      "rationale": "마감·환불 정책은 일정 변경 시 손실을 좌우한다."
+    },
+    {
+      "id": "travel-contingency",
+      "directive": "우천·결항·휴무 등에 대비한 대안 일정을 둔다. 단일 경로 의존 금지.",
+      "rationale": "외부 변수(날씨·운항)는 통제 불가 — 대안이 여행을 구한다."
+    }
+  ]
+}

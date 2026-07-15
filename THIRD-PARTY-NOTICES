@@ -1,0 +1,7 @@
+This binary incorporates Rust dependencies under their upstream licenses.
+
+- serde, serde_json: MIT OR Apache-2.0
+- wait-timeout: MIT OR Apache-2.0
+- soksak-spec-contract, soksak-spec-service, soksak-spec-socket: MIT
+
+Cargo.lock identifies the exact dependency closure used for a release.
