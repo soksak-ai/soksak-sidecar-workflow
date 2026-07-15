@@ -1,0 +1,10 @@
+{
+  "id": "soksak-sidecar-workflow",
+  "version": "0.0.1",
+  "releaseTag": "v0.0.1",
+  "repository": "https://github.com/soksak-ai/soksak-sidecar-workflow",
+  "interface": {
+    "id": "soksak-spec-sidecar-workflow",
+    "version": "0.0.1"
+  }
+}
