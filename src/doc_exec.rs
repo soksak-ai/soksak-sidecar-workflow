@@ -1664,6 +1664,75 @@ mod tests {
         }
     }
 
+    /// [정공법] 검색은 자기판단 트리거(GROUNDING: 메모리로 틀릴 수 있으면 검색, 확실하면 reason) — 강제 아님.
+    /// 두 결함을 막는다: (1) gen 이 "You cannot search here" 로 첫 턴 검색을 금지하면 GROUNDING 분기가 gen 에서
+    /// 죽어 법정·심층 make-or-break 가 뒤 라운드로 밀린다. (2) GROUNDING 이 검색을 특정 도구명(native WebSearch)으로
+    /// 지목하면, native WebSearch 가 차단된 provider(z.ai/glm — mcp 검색만 있음)에서 분기가 "검색"으로 판정해도
+    /// 지목 도구가 없어 실행 불가(실측: glm 이 격리 프로브에서 행위 지시엔 스스로 검색, 도구명 지시엔 무검색).
+    /// 프롬프트는 도구명이 아니라 행위(search the web)로 지시하고, 런타임이 실제 도구를 배선한다.
+    #[test]
+    fn gen_first_turn_grounds_by_search() {
+        let draft_raw = include_str!("../workflows/draft.doc.json");
+        let research_raw = include_str!("../workflows/research.doc.json");
+        let draft: Json = serde_json::from_str(draft_raw).unwrap();
+        let gen = draft["prompts"]["gen"].as_str().expect("gen prompt");
+        let common = draft["values"]["COMMON"].as_str().expect("COMMON");
+        assert!(
+            !gen.contains("cannot search"),
+            "gen 이 검색을 금지한다 — 첫 턴에서 GROUNDING 분기가 죽는다"
+        );
+        // 검색은 도구명(native WebSearch — z.ai/glm 에 없음)이 아니라 행위로 지시한다. 두 번들 doc 전체에서
+        // WebSearch 도구명이 살아있으면 그 도구 없는 provider(glm)에서 검색분기가 판정해도 실행 불가.
+        assert!(
+            !draft_raw.contains("WebSearch"),
+            "draft.doc.json 에 WebSearch 도구명 지목 잔존 — glm 에서 검색분기 죽음"
+        );
+        assert!(
+            !research_raw.contains("WebSearch"),
+            "research.doc.json 에 WebSearch 도구명 지목 잔존 — 같은 결함"
+        );
+        assert!(
+            common.contains("search the web"),
+            "GROUNDING 은 행위(search the web)로 검색을 지시해야 provider 중립"
+        );
+        // 검색으로 grounding 한 항목은 출처(조문/표준/URL)를 항목에 명시해야 감사 가능 — 근거 증발 방지.
+        assert!(
+            common.contains("CITE the grounded source"),
+            "GROUNDING 이 검색 출처 인용을 요구하지 않는다 — grounding 이 감사 불가로 증발한다"
+        );
+    }
+
+    /// [우연-의존 차단] 판정·변경은 증거를 산출에 강제한다 — LLM 우연에 기대지 않는다. VERIFY 판정(oxf)은 reason
+    /// 없이 통과 못 하고(증거 없는 PASS 금지), remove/reraise 는 근거로 대상 id 를 짚어야 한다(감사 가능).
+    #[test]
+    fn verdicts_and_changes_require_evidence() {
+        for raw in [
+            include_str!("../workflows/draft.doc.json"),
+            include_str!("../workflows/research.doc.json"),
+        ] {
+            let d: Json = serde_json::from_str(raw).unwrap();
+            let req: Vec<&str> = d["values"]["VERIFY_SCHEMA"]["required"]
+                .as_array()
+                .expect("VERIFY_SCHEMA.required")
+                .iter()
+                .filter_map(|x| x.as_str())
+                .collect();
+            assert!(
+                req.contains(&"reason"),
+                "VERIFY_SCHEMA 가 reason 을 강제하지 않는다 — 증거 없는 판정 통과"
+            );
+        }
+        let draft: Json =
+            serde_json::from_str(include_str!("../workflows/draft.doc.json")).unwrap();
+        let dr = draft["prompts"]["draft-review"]
+            .as_str()
+            .expect("draft-review prompt");
+        assert!(
+            dr.contains("name the specific item id"),
+            "draft-review reason 이 대상 id 인용을 요구하지 않는다 — 근거가 우연에 의존"
+        );
+    }
+
     /// [번들 정본] 번들 스키마가 Ajv strict(claude --json-schema)를 통과 — 스키마 객체 최상위에 미지 키가
     /// 없어야 한다. properties 밖에 프로퍼티를 두면(예: removals 오배치) 사이드카 검증은 통과하나 claude 가
     /// 런타임에 거부(exit 1). "테스트 그린≠런타임 정확" 방어.
