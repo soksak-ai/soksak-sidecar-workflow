@@ -12,6 +12,12 @@ use std::collections::{HashMap, HashSet};
 pub const NO_VERDICT_MAX: u32 = 3;
 /// next lease 수명(ms) — CLI 실행자가 노드를 잡는 기간(30분).
 pub const NEXT_LEASE_MS: u64 = 30 * 60 * 1000;
+/// 합의 재검(-again) 자기재발행 라운드 상한 — 도달 시 재발행 대신 chunk 를 badge=f 로 봉인(무한 루프 차단).
+/// 프롬프트의 "round N of max 20" 을 실제 집행한다.
+pub const CONSENSUS_ROUND_MAX: u32 = 20;
+/// 설계 팩트 카테고리 — 한 chunk 를 research·design 이 공유하므로, design-audit 는 이 셋에 드는 fact 만,
+/// research-audit 는 그 밖 fact 만 검토 대상으로 스코프한다.
+const DESIGN_FACT_CATS: [&str; 3] = ["interface", "domain-model", "criterion"];
 
 /// 칸반 노드 — kanban IPC 가 돌려주는 JSON 을 역직렬화. JS 는 camelCase(blockedBy/parentId).
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -653,6 +659,32 @@ fn build_stage_input(
     body: &str,
     stage_name: &str,
 ) -> Result<StageInput, Value> {
+    // 합의 스테이지(draft-review·research-audit·design-audit) — {{document}}=args.ledger(state+history 문서),
+    // {{round}}=args.round 한 채널만 주입한다. reviewer 는 이 문서로 [현재 집합 + 변경 히스토리] 를 본다.
+    // 옛 원장/facts/removed 주입을 대체(그 프롬프트들은 {{ledger}}/{{facts}} 를 안 쓴다).
+    if let Some(spec) = consensus_spec(stage_name) {
+        let Some(chunk) = target.parent_id.as_deref() else {
+            return Ok(StageInput {
+                stage_body: body.to_string(),
+                ledger: None,
+            });
+        };
+        let doc = build_consensus_document(&deps.list_nodes(), chunk, &spec);
+        let round = read_round(body);
+        let mut inp: Value = serde_json::from_str(body).map_err(|e| {
+            json!({ "ok": false, "processed": 0, "id": target.id, "code": "INTERNAL", "message": format!("합의 스테이지 body 파싱 실패: {e}") })
+        })?;
+        if let Some(args) = inp.get_mut("args").and_then(|a| a.as_object_mut()) {
+            args.insert("ledger".into(), json!(doc.clone()));
+            args.insert("round".into(), json!(round));
+        } else {
+            inp["args"] = json!({ "ledger": doc.clone(), "round": round });
+        }
+        return Ok(StageInput {
+            stage_body: inp.to_string(),
+            ledger: Some(doc),
+        });
+    }
     // audit 라운드(렌즈 회전 + 합의 remove)도 검증된 o-fact 를 봐야 앱에서 감사가 실효 — 없으면 빈 facts 로
     // 돌아 무의미. ledger_stages/o_only 에 포함해 board 에서 fact 주입.
     let audit_stages: HashSet<&str> = [
@@ -800,6 +832,184 @@ fn ensure_section(deps: &dyn Deps, chunk_id: &str, title: &str) -> Option<String
     }))
 }
 
+/// 합의 스테이지 프레임 명세 — 어떤 kind 프레임을, 어느 chunk-밑 섹션에, 어느 scope 로 물질화하나.
+/// draft-review→Spec(요건 item), research-audit→Research(기초 fact), design-audit→Design(설계 fact).
+struct ConsensusSpec {
+    kind: &'static str,
+    section: &'static str,
+    scope: FrameScope,
+    /// 신규(add) 프레임의 최초 badge — 검수 대상(검수전)이냐 태생 확정(o)이냐.
+    /// item·research fact 는 검수전(per-item 검증 대상), design fact 는 태생 o(파생 결정, 검증 없음).
+    create_badge: &'static str,
+}
+enum FrameScope {
+    Items,
+    ResearchFacts,
+    DesignFacts,
+}
+
+/// 합의 스테이지 판별 — 세 완전성 지점만 changes 프로토콜(apply_changes)을 쓴다. 그 밖은 None.
+fn consensus_spec(stage: &str) -> Option<ConsensusSpec> {
+    match stage {
+        "draft-review" => Some(ConsensusSpec {
+            kind: "item",
+            section: "Spec",
+            scope: FrameScope::Items,
+            create_badge: "검수전",
+        }),
+        "research-audit" => Some(ConsensusSpec {
+            kind: "fact",
+            section: "Research",
+            scope: FrameScope::ResearchFacts,
+            create_badge: "검수전",
+        }),
+        "design-audit" => Some(ConsensusSpec {
+            kind: "fact",
+            section: "Design",
+            scope: FrameScope::DesignFacts,
+            create_badge: "o",
+        }),
+        _ => None,
+    }
+}
+
+/// scope 필터 — 같은 kind=fact 라도 카테고리로 research(설계 밖)/design(설계 안) 을 가른다.
+fn frame_in_scope(scope: &FrameScope, node: &Node) -> bool {
+    match scope {
+        FrameScope::Items => true,
+        FrameScope::ResearchFacts => {
+            !DESIGN_FACT_CATS.contains(&node.category.as_deref().unwrap_or(""))
+        }
+        FrameScope::DesignFacts => {
+            DESIGN_FACT_CATS.contains(&node.category.as_deref().unwrap_or(""))
+        }
+    }
+}
+
+/// build_consensus_document — 합의 문서(items with state+history) 구성. reviewer 가 [현재 집합 + 변경
+/// 히스토리] 를 보는 단일 채널이며 apply_changes 의 입력이기도 하다. state=badge 매핑(x→"x", 그 밖→"o"),
+/// history=node.result JSON 의 history 배열(합의가 누적, 없으면 []). doc 엔진 {{document}}=args.ledger 렌더.
+fn build_consensus_document(nodes: &[Node], chunk_id: &str, spec: &ConsensusSpec) -> Vec<Value> {
+    let by_id: HashMap<String, &Node> = nodes.iter().map(|n| (n.id.clone(), n)).collect();
+    nodes
+        .iter()
+        .filter(|n| {
+            n.kind.as_deref() == Some(spec.kind)
+                && descends(&by_id, n, chunk_id)
+                && frame_in_scope(&spec.scope, n)
+        })
+        .map(|n| {
+            let state = if n.badge_str() == "x" { "x" } else { "o" };
+            let history = n
+                .result
+                .as_deref()
+                .and_then(|r| serde_json::from_str::<Value>(r).ok())
+                .and_then(|v| v.get("history").cloned())
+                .unwrap_or_else(|| json!([]));
+            json!({
+                "id": n.id,
+                "state": state,
+                "title": n.title,
+                "description": n.description,
+                "category": n.category,
+                "history": history,
+            })
+        })
+        .collect()
+}
+
+/// read_round — task body 의 args.round(reconcile 소유 카운터). 미지정이면 1(최초 라운드).
+fn read_round(body: &str) -> u32 {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.pointer("/args/round").cloned())
+        .and_then(|r| match r {
+            Value::Number(n) => n.as_u64(),
+            Value::String(s) => s.parse().ok(),
+            _ => None,
+        })
+        .map(|n| n as u32)
+        .unwrap_or(1)
+}
+
+/// inject_round — 자기재발행(-again) task 의 body args.round 에 다음 라운드 번호를 싣는다. doc 엔진은 산술을
+/// 못 하므로 round 증분은 reconcile 소유. 이 주입으로 {{round}} 플레이스홀더가 라운드마다 누적한다.
+fn inject_round(params: &mut Value, round: u32) {
+    let Some(body_str) = params.get("body").and_then(|b| b.as_str()) else {
+        return;
+    };
+    let mut body: Value = match serde_json::from_str(body_str) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(args) = body.get_mut("args").and_then(|a| a.as_object_mut()) {
+        args.insert("round".into(), json!(round));
+    } else {
+        body["args"] = json!({ "round": round });
+    }
+    if let Some(obj) = params.as_object_mut() {
+        obj.insert("body".into(), json!(body.to_string()));
+    }
+}
+
+/// 형제 프레임의 정규화 verify body 를 복제하되 vars.title/description 를 신규 프레임 값으로 교체한다.
+/// 신규(add) 프레임도 형제와 동일한 검증 배선(promptHash+refs+schema)을 얻어 per-item 검증 대상이 된다.
+/// 비-정규화(빈·plain) body(예: 태생-o design fact)면 그대로 반환.
+fn clone_verify_body(sibling_body: &str, title: &str, description: &str) -> String {
+    let mut v: Value = match serde_json::from_str(sibling_body) {
+        Ok(v) => v,
+        Err(_) => return String::new(),
+    };
+    if v.get("promptHash").is_none() {
+        return sibling_body.to_string();
+    }
+    if let Some(vars) = v.get_mut("vars").and_then(|x| x.as_object_mut()) {
+        vars.insert("title".into(), json!(title));
+        vars.insert("description".into(), json!(description));
+    }
+    v.to_string()
+}
+
+/// 합의 add → 신규 프레임 node.add 파라미터. 섹션-밑 locked 프레임 + 형제 body 복제(검증 배선 상속) +
+/// history 를 result JSON 으로 실어 다음 라운드가 읽는다. section_id None 이면 chunk 직속 폴백.
+fn build_consensus_create(
+    create: &Value,
+    chunk_id: &str,
+    section_id: Option<&str>,
+    template: Option<&Node>,
+    spec: &ConsensusSpec,
+) -> Value {
+    let title = create
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let description = create
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let history = create.get("history").cloned().unwrap_or_else(|| json!([]));
+    let parent = section_id.unwrap_or(chunk_id);
+    let body = template
+        .map(|t| clone_verify_body(t.body_str(), &title, &description))
+        .unwrap_or_default();
+    json!({
+        "title": title,
+        "parentId": parent,
+        "description": description,
+        "body": body,
+        "blockedBy": [],
+        "locked": true,
+        "collapsed": false,
+        "type": "task",
+        "kind": spec.kind,
+        "badge": spec.create_badge,
+        "origin": "agent",
+        "result": json!({ "history": history }).to_string(),
+    })
+}
+
 // stage 산출 소비 — draftDoc 검증·발행 또는 자식 발행 + classify/audit 처리.
 fn consume_stage_output(
     deps: &dyn Deps,
@@ -856,6 +1066,11 @@ fn consume_stage_output(
             // task/code 자식은 섹션이 아니라 chunk 직속으로 남는다(pick_ready 실행 대상).
             let section_title = stage_section_title(stage_name);
             let mut section_id: Option<String> = None;
+            // 합의 라운드 카운터(reconcile 소유) — 이 스테이지가 합의 스테이지면 body args.round 에서 읽는다.
+            let is_consensus = consensus_spec(stage_name).is_some();
+            let round = read_round(body);
+            // 상한 도달로 자기재발행을 봉인했는가 — 봉인 시 chunk 를 badge=f 로 확정하고 루프를 멈춘다.
+            let mut sealed = false;
             for ev in &children {
                 if let Some(reg) = ev
                     .get("register_prompts")
@@ -863,6 +1078,17 @@ fn consume_stage_output(
                 {
                     for (role, hash) in register_prompt_templates(reg, deps) {
                         role_to_hash.insert(role, hash);
+                    }
+                }
+                // 합의 자기재발행(-again) — 같은 합의 스테이지 task. round+1 을 실어 라운드가 누적한다.
+                // 상한 도달이면 재발행하지 않고 봉인(무한 루프 차단) — doc 엔진이 changes 로 발행한 -again 을 억제.
+                let is_republish = is_consensus
+                    && ev.get("kind").and_then(|v| v.as_str()) == Some("task")
+                    && ev.get("stage").and_then(|v| v.as_str()) == Some(stage_name);
+                if is_republish {
+                    if round >= CONSENSUS_ROUND_MAX {
+                        sealed = true;
+                        continue;
                     }
                 }
                 let mut parent_id = ev
@@ -897,13 +1123,16 @@ fn consume_stage_output(
                             .collect()
                     })
                     .unwrap_or_default();
-                let params = build_add_params(
+                let mut params = build_add_params(
                     ev,
                     parent_id.as_deref(),
                     &blocked_by,
                     child_ctx.as_ref(),
                     &role_to_hash,
                 );
+                if is_republish {
+                    inject_round(&mut params, round + 1);
+                }
                 if let Some(node_id) = deps.add_node(params) {
                     if let Some(ev_id) = ev.get("id").and_then(|v| v.as_str()) {
                         key_of.insert(ev_id.to_string(), node_id);
@@ -962,7 +1191,51 @@ fn consume_stage_output(
             if stage_name == "audit" && !res.is_object() {
                 return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INVALID_RESULT", "message": "audit 결과 없음(verdict/complete 미반환)" });
             }
-            if res.is_object() {
+            // 합의 changes 물질화 — reviewer changes[{op,id?,title?,description?,reason}] 를 현재 프레임에 적용한다.
+            // add→검수전(또는 태생-o) 프레임 신규(올바른 섹션 밑), remove:o→x, reraise:x→o + history 누적(result JSON).
+            // 옛 apply_review(additions/removals)는 changes 없는 audit/classify/generate 반환값 전용(아래 else).
+            if let (Some(changes), Some(spec), Some(chunk)) = (
+                res.get("changes").and_then(|c| c.as_array()),
+                consensus_spec(stage_name),
+                target.parent_id.as_deref(),
+            ) {
+                let all = deps.list_nodes();
+                let doc = build_consensus_document(&all, chunk, &spec);
+                let cs = crate::consensus::apply_changes(&doc, changes, round);
+                if !cs.creates.is_empty() {
+                    let section_id = ensure_section(deps, chunk, spec.section);
+                    let by_id: HashMap<String, &Node> =
+                        all.iter().map(|n| (n.id.clone(), n)).collect();
+                    // 형제 프레임 하나 — 신규 add 프레임이 복제할 검증 배선(정규화 body) 원본.
+                    let template = all.iter().find(|n| {
+                        n.kind.as_deref() == Some(spec.kind)
+                            && descends(&by_id, n, chunk)
+                            && frame_in_scope(&spec.scope, n)
+                    });
+                    for create in &cs.creates {
+                        let params = build_consensus_create(
+                            create,
+                            chunk,
+                            section_id.as_deref(),
+                            template,
+                            &spec,
+                        );
+                        deps.add_node(params);
+                    }
+                }
+                for e in &cs.edits {
+                    // remove:o→x, reraise:x→o. history 는 result JSON 으로 누적 — build_consensus_document 가
+                    // 읽어 다음 라운드 document 로 렌더(진동 차단). reason = 이 라운드 변경 사유(history 마지막).
+                    let badge = if e.state == "x" { "x" } else { "o" };
+                    let last_reason = e
+                        .history
+                        .last()
+                        .and_then(|h| h.get("reason").cloned())
+                        .unwrap_or(Value::Null);
+                    let result = json!({ "reason": last_reason, "history": e.history }).to_string();
+                    deps.edit_node(&e.id, json!({ "badge": badge, "result": result }));
+                }
+            } else if res.is_object() {
                 // 합의 루프의 remove 연산 — 어느 audit(draft·research·design·plan)든 result.removals[{id,reason}]
                 // 로 현재 항목을 badge→x(반박·중복·범위밖 자기교정). 이 한 경로로 네 완전성 지점이 같은 remove 를 재사용.
                 // 삭제 아님 — x 항목은 사유와 함께 ledger 에 남아 다음 라운드 reviewer 가 "이미 뺀 것"을 본다(보드=히스토리→진동 차단).
@@ -1009,6 +1282,16 @@ fn consume_stage_output(
                     if !chunk_edit.is_empty() {
                         deps.edit_node(parent_id, Value::Object(chunk_edit));
                     }
+                }
+            }
+            // 봉인 — round 상한 도달로 -again 을 억제했으면 chunk 를 badge=f 로 확정(합의 미수렴 종결).
+            // 게이트(research_gate 등)는 badge=o 를 요구하므로 여기서 멈추고 사람이 개입한다.
+            if sealed {
+                if let Some(chunk) = &target.parent_id {
+                    deps.edit_node(
+                        chunk,
+                        json!({ "badge": "f", "result": format!("합의 미수렴 — round 상한 {CONSENSUS_ROUND_MAX} 도달, 봉인") }),
+                    );
                 }
             }
             deps.edit_node(&target.id, json!({ "status": "done" }));

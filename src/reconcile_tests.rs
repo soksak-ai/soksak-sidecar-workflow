@@ -190,6 +190,12 @@ fn sorted_ids(ns: &[Node]) -> Vec<String> {
     v.sort();
     v
 }
+// Value 배열(원장/document 엔트리)의 id 문자열 추출.
+fn ids_of(vs: &[Value]) -> Vec<String> {
+    vs.iter()
+        .filter_map(|v| v.get("id").and_then(|x| x.as_str()).map(String::from))
+        .collect()
+}
 
 // ── isDone ───────────────────────────────────────────────────────────────────
 #[test]
@@ -978,36 +984,179 @@ fn reconcile_tick_audit_no_removals_field_noop() {
 }
 
 #[test]
-fn build_stage_input_injects_facts_and_removed_for_audit() {
-    // audit 라운드는 board 의 o-fact 를 받아야 앱에서 감사가 실효(없으면 빈 facts 무의미 감사).
-    // 이미 뺀 x-fact 는 removed 히스토리 채널로 실려 다음 라운드 진동(re-add)을 막는다.
+fn build_stage_input_injects_document_and_round_for_consensus() {
+    // 합의 스테이지(research-audit)는 옛 facts/removed 채널이 아니라 단일 document 채널을 받는다.
+    // {{document}}=args.ledger(state+history), {{round}}=args.round. reviewer 가 이 한 채널로
+    // [현재 집합 + 변경 히스토리] 를 본다. state=badge 매핑(x→x, 그 밖→o), history=result JSON.
     let n = node(
         json!({ "id": "research-audit", "kind": "task", "parentId": "chunk", "status": "todo",
-        "body": "{\"workflow\":\"research\",\"stage\":\"research-audit\",\"args\":{\"directive\":\"d\"}}" }),
+        "body": "{\"workflow\":\"research\",\"stage\":\"research-audit\",\"args\":{\"directive\":\"d\",\"round\":4}}" }),
     );
-    let d = FakeDeps::new(vec![])
-        .facts(vec![
-            json!({ "id": "f1", "title": "o-fact", "badge": "o" }),
-            json!({ "id": "f2", "title": "뺀-fact", "badge": "x", "result": "지시서 범위밖" }),
-        ])
-        .ledger(vec![]);
+    let d = FakeDeps::new(nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null }),
+        json!({ "id": "f1", "kind": "fact", "parentId": "chunk", "title": "o-fact", "badge": "o" }),
+        json!({ "id": "f2", "kind": "fact", "parentId": "chunk", "title": "뺀-fact", "badge": "x",
+            "result": "{\"reason\":\"지시서 범위밖\",\"history\":[{\"round\":1,\"action\":\"remove\",\"reason\":\"지시서 범위밖\"}]}" }),
+    ]));
     let si = build_stage_input(&d, &n, n.body_str(), "research-audit").expect("build_stage_input");
     let body: Value = serde_json::from_str(&si.stage_body).unwrap();
-    let facts = body
-        .pointer("/args/facts")
+    assert_eq!(body.pointer("/args/round"), Some(&json!(4)), "round 주입");
+    let doc = body
+        .pointer("/args/ledger")
         .and_then(|v| v.as_array())
-        .expect("audit 에 facts 주입");
-    assert_eq!(facts.len(), 1, "o-fact 만(o_only 필터)");
-    assert_eq!(facts[0]["id"], "f1");
-    let removed = body
-        .pointer("/args/removed")
-        .and_then(|v| v.as_array())
-        .expect("audit 에 removed 히스토리 주입");
-    assert_eq!(removed.len(), 1, "x-fact 만");
-    assert_eq!(removed[0]["id"], "f2");
+        .expect("합의 document(=args.ledger) 주입");
+    assert_eq!(doc.len(), 2, "research fact 전부(state 무관)");
+    assert_eq!(doc[0]["state"], "o", "badge o → state o");
     assert_eq!(
-        removed[0]["reason"], "지시서 범위밖",
-        "제거 사유 보존(진동 차단)"
+        doc[1]["state"], "x",
+        "badge x → state x(뺀 항목도 문서에 잔존)"
+    );
+    assert_eq!(
+        doc[1]["history"][0]["action"], "remove",
+        "history 는 result JSON 에서 복원(진동 차단 채널)"
+    );
+    let facts = body.pointer("/args/facts");
+    assert!(
+        facts.is_none(),
+        "옛 facts 채널 폐기 — document 한 채널만: {facts:?}"
+    );
+}
+
+#[test]
+fn build_consensus_document_scopes_research_vs_design_facts() {
+    // 한 chunk 를 research·design 이 공유 — design-audit 는 설계 카테고리 fact 만, research-audit 는 그 밖만.
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null }),
+        json!({ "id": "rf", "kind": "fact", "parentId": "chunk", "title": "기초지식", "category": "규제", "badge": "o" }),
+        json!({ "id": "df", "kind": "fact", "parentId": "chunk", "title": "도메인 모델", "category": "domain-model", "badge": "o" }),
+    ]);
+    let research =
+        build_consensus_document(&ns, "chunk", &consensus_spec("research-audit").unwrap());
+    assert_eq!(
+        ids_of(&research),
+        vec!["rf"],
+        "research scope = 설계 밖 fact"
+    );
+    let design = build_consensus_document(&ns, "chunk", &consensus_spec("design-audit").unwrap());
+    assert_eq!(
+        ids_of(&design),
+        vec!["df"],
+        "design scope = 설계 카테고리 fact"
+    );
+}
+
+// ── 합의 changes 물질화 이음부 (draft-review) ──────────────────────────────────
+// reconcile_stage 를 직접 호출 — pick_ready 순서(검수전 item 우선) 우회, 합의 task 를 결정적으로 타깃.
+
+// draft-review task + 프레임/섹션 픽스처. round 를 인자로 body args.round 에 싣는다.
+fn draft_review_fixture(item_badge: &str, round: u32) -> (Vec<Node>, Node) {
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
+        json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
+        json!({ "id": "i0", "kind": "item", "parentId": "spec", "title": "재고 차감", "description": "원자적 차감", "badge": item_badge,
+            "body": "{\"promptHash\":\"h-verify\",\"vars\":{\"title\":\"재고 차감\",\"description\":\"원자적 차감\"},\"refs\":{\"directive\":\"r-dir\"}}" }),
+    ]);
+    let target = node(
+        json!({ "id": "draft-review", "kind": "task", "parentId": "chunk", "status": "todo", "blockedBy": [],
+        "body": format!("{{\"workflow\":\"draft\",\"stage\":\"draft-review\",\"args\":{{\"directive\":\"d\",\"round\":{round}}}}}") }),
+    );
+    (ns, target)
+}
+
+#[test]
+fn changes_remove_flips_frame_to_x_and_appends_history() {
+    // (a) op:remove → 대상 프레임 badge→x + result 에 {reason, history[]} 누적(다음 라운드 document 채널).
+    let (ns, target) = draft_review_fixture("o", 2);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![],
+        json!({ "changes": [{ "op": "remove", "id": "i0", "reason": "i7 이 흡수 — 중복" }] }),
+    ));
+    let body = target.body_str().to_string();
+    let nodes_snapshot = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &nodes_snapshot);
+    assert_eq!(r["ok"], true);
+    let edit = d.c().edit_of("i0").cloned().expect("i0 편집");
+    assert_eq!(edit["badge"], "x", "remove → 프레임 badge x");
+    let result: Value = serde_json::from_str(edit["result"].as_str().unwrap()).unwrap();
+    assert_eq!(result["reason"], "i7 이 흡수 — 중복", "사유 기록");
+    assert_eq!(
+        result["history"].as_array().unwrap().last().unwrap()["action"],
+        "remove",
+        "history append(진동 차단)"
+    );
+    assert_eq!(result["history"][0]["round"], 2, "라운드 번호 탑재");
+}
+
+#[test]
+fn changes_add_publishes_pending_frame_under_correct_section() {
+    // (b) op:add → 검수전 프레임 신규, 올바른 섹션(Spec) 밑, 형제 검증 body 복제(검증 대상화).
+    let (ns, target) = draft_review_fixture("o", 1);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![],
+        json!({ "changes": [{ "op": "add", "title": "동시성 승자 규칙", "description": "충돌 입력의 승자", "reason": "운영 견고성 누락" }] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    reconcile_stage(&d, &target, &body, &snap);
+    let added = d
+        .c()
+        .add_find(|p| p["kind"] == "item" && p["title"] == "동시성 승자 규칙")
+        .cloned()
+        .expect("신규 item 프레임 발행");
+    assert_eq!(added["parentId"], "spec", "올바른 섹션(Spec) 밑");
+    assert_eq!(added["badge"], "검수전", "검수전 프레임(검증 대상)");
+    assert_eq!(added["kind"], "item");
+    // 형제 body 복제 — promptHash 상속 + vars 교체(검증 배선).
+    let cloned: Value = serde_json::from_str(added["body"].as_str().unwrap()).unwrap();
+    assert_eq!(cloned["promptHash"], "h-verify", "형제 검증 배선 상속");
+    assert_eq!(cloned["vars"]["title"], "동시성 승자 규칙", "vars 교체");
+    let result: Value = serde_json::from_str(added["result"].as_str().unwrap()).unwrap();
+    assert_eq!(result["history"][0]["action"], "add", "add history 시작");
+}
+
+#[test]
+fn changes_republish_increments_round() {
+    // (c) 이견 잔존 → -again 자기재발행 task 의 body args.round 가 +1 누적.
+    let (ns, target) = draft_review_fixture("o", 3);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![json!({ "id": "draft-review-again", "kind": "task", "stage": "draft-review", "parent": "chunk", "title": "재검" })],
+        json!({ "changes": [{ "op": "add", "title": "X", "description": "d", "reason": "r" }] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    reconcile_stage(&d, &target, &body, &snap);
+    let again = d
+        .c()
+        .add_find(|p| p["kind"] == "task" && p["title"] == "재검")
+        .cloned()
+        .expect("-again 재발행");
+    let again_body: Value = serde_json::from_str(again["body"].as_str().unwrap()).unwrap();
+    assert_eq!(again_body["args"]["round"], 4, "round 3 → 재발행 4(누적)");
+    assert_eq!(
+        again_body["stage"], "draft-review",
+        "같은 합의 스테이지 재발행"
+    );
+}
+
+#[test]
+fn changes_round_cap_seals_chunk_instead_of_republish() {
+    // (d) round 상한(20) 도달 시 -again 억제 + chunk 봉인(badge=f). 무한 재발행 차단.
+    let (ns, target) = draft_review_fixture("o", CONSENSUS_ROUND_MAX);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![json!({ "id": "draft-review-again", "kind": "task", "stage": "draft-review", "parent": "chunk", "title": "재검" })],
+        json!({ "changes": [{ "op": "remove", "id": "i0", "reason": "막판 이견" }] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    reconcile_stage(&d, &target, &body, &snap);
+    assert!(
+        d.c().add_find(|p| p["kind"] == "task").is_none(),
+        "상한 도달 — 재발행 억제(task 미발행)"
+    );
+    assert_eq!(
+        d.c().edit_of("chunk").unwrap()["badge"],
+        "f",
+        "봉인 — chunk badge f"
     );
 }
 
