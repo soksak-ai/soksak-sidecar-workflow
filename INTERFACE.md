@@ -10,7 +10,7 @@ The process transport is UTF-8 JSON Lines over stdio. The platform-level residen
 frames are owned by `soksak-spec-service` at commit
 `d7f54852754195527f125d1fc11362316157d19b`. This repository owns the workflow behavior of
 the declared operations: `run`, `ping`, `reconcile`, `research`, `next`, `submit`,
-`issuerize`, and `export`.
+`issuerize`, `export`, and `proof`.
 
 The binary exposes a pre-start handshake:
 
