@@ -2,7 +2,9 @@
 
 soksak의 비공개 네이티브 워크플로 런타임이다. `workflow-doc@0.0.1` 실행, 상주 서비스
 구현, provider 프로세스 감독, `soksak-spec-sidecar-workflow` 인터페이스를 소유한다.
-플러그인 manifest와 UI는 workflow 플러그인 저장소가 소유한다.
+이 사이드카가 유일한 Rust 워크플로 런타임이다. workflow 플러그인 저장소는 순수
+JS다. plugin manifest(`plugin.json`)와 JS 실행 원장 반쪽(issue lease/receipt/gate/drift)을
+소유한다.
 
 ## 경계
 

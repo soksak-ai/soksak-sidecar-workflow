@@ -2,8 +2,9 @@
 
 The private native workflow runtime for soksak. It owns execution of `workflow-doc@0.0.1`,
 the resident service implementation, provider process supervision, and the
-`soksak-spec-sidecar-workflow` interface. Plugin manifests and UI remain owned by the
-workflow plugin repository.
+`soksak-spec-sidecar-workflow` interface. This sidecar is the sole Rust workflow runtime.
+The workflow plugin repository is pure JS: it owns the plugin manifest (`plugin.json`) and
+the JS execution-ledger half (issue lease/receipt/gate/drift).
 
 ## Boundaries
 
