@@ -850,6 +850,57 @@ fn reconcile_tick_starvation_fail_min_pick() {
 }
 
 #[test]
+fn reconcile_tick_item_rolls_up_chunk_progress() {
+    // 보드 모델 — 프레임 badge 확정 시 부모 chunk 진척을 롤업(변화무쌍한 진행중). 확정(o/x/f) 프레임 /
+    // 전체 프레임을 description 에 싣고, done 아니면 status=inprogress. 섹션-밑 프레임도 chunk 까지 올라간다.
+    // badge 축(audit 인증)은 안 건드린다. 방금 확정한 프레임은 스냅샷이 아직 검수전이라 계수 override 로 반영.
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "status": "todo" }),
+        json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
+        json!({ "id": "i0", "kind": "item", "parentId": "spec", "badge": "o" }),
+        json!({ "id": "i1", "kind": "item", "parentId": "spec", "badge": "검수전", "status": "todo", "blockedBy": [], "body": "{\"prompt\":\"verify\"}" }),
+        json!({ "id": "f0", "kind": "fact", "parentId": "chunk", "badge": "검수전", "status": "todo", "blockedBy": [] }),
+    ]);
+    let d = FakeDeps::new(ns).exec(json!({ "oxf": "o", "result": { "reason": "실재" } }));
+    let r = tick(&d);
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["id"], "i1");
+    assert_eq!(r["badge"], "o");
+    // i0(o) + i1(방금 o) 확정, f0(검수전) 미확정 → 확정 2/3(item·fact 통합 계수).
+    let ce = d
+        .c()
+        .edit_of("chunk")
+        .cloned()
+        .expect("chunk 진척 롤업 edit");
+    assert_eq!(ce["description"], "확정 2/3");
+    assert_eq!(ce["status"], "inprogress");
+    assert!(
+        ce.get("badge").is_none(),
+        "badge 축은 audit 소관 — 롤업이 안 건드림"
+    );
+    assert!(ce.get("title").is_none(), "롤업은 title 을 안 건드림");
+}
+
+#[test]
+fn reconcile_tick_rollup_skips_done_chunk() {
+    // Step 3 이슈라이즈 게이트가 status=done 설정한 chunk 는 롤업이 안 덮는다(status != "done" 가드).
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "status": "done" }),
+        json!({ "id": "i0", "kind": "item", "parentId": "chunk", "badge": "o" }),
+        json!({ "id": "i1", "kind": "item", "parentId": "chunk", "badge": "검수전", "status": "todo", "blockedBy": [], "body": "{\"prompt\":\"v\"}" }),
+    ]);
+    let d = FakeDeps::new(ns).exec(json!({ "oxf": "o", "result": {} }));
+    let r = tick(&d);
+    assert_eq!(r["badge"], "o");
+    assert_eq!(
+        d.c().edit_of("i1").unwrap()["badge"],
+        "o",
+        "프레임 badge 는 확정"
+    );
+    assert!(d.c().edit_of("chunk").is_none(), "done chunk 는 롤업 불변");
+}
+
+#[test]
 fn reconcile_tick_audit_certify() {
     let ns = nodes(vec![
         json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),

@@ -267,6 +267,61 @@ pub fn build_ledger(nodes: &[Node], chunk_id: &str, kind: &str) -> Vec<Value> {
         .collect()
 }
 
+/// 진척 롤업 계수 대상 — badge 를 지니는 프레임 3종(fact/item/plan-unit). 섹션/그룹/task 는 제외.
+fn is_frame_kind(kind: Option<&str>) -> bool {
+    matches!(kind, Some("fact") | Some("item") | Some("plan-unit"))
+}
+
+/// 프레임의 조상 chunk(kind=chunk)를 부모 사슬로 찾는다. 섹션-밑 프레임도 chunk 까지 올라간다(guard 100).
+fn ancestor_chunk<'a>(by_id: &HashMap<String, &'a Node>, node: &Node) -> Option<&'a Node> {
+    let mut p = node.parent_id.clone();
+    let mut guard = 0;
+    while let Some(pid) = p {
+        if guard >= 100 {
+            break;
+        }
+        guard += 1;
+        let parent = by_id.get(&pid).copied()?;
+        if parent.kind.as_deref() == Some("chunk") {
+            return Some(parent);
+        }
+        p = parent.parent_id.clone();
+    }
+    None
+}
+
+/// chunk 진척 문자열 — 자손 프레임을 badge 로 집계한 "확정 N/M"(확정=o/x/f, 분모=전체 프레임).
+/// override_id 프레임은 이번 틱에 막 확정됐으나 스냅샷이 아직 검수전이라 override_badge 로 계수에 반영한다.
+/// 프레임 0개면 롤업 대상 아님(None).
+fn chunk_progress_line(
+    nodes: &[Node],
+    chunk_id: &str,
+    override_id: &str,
+    override_badge: &str,
+) -> Option<String> {
+    let by_id: HashMap<String, &Node> = nodes.iter().map(|n| (n.id.clone(), n)).collect();
+    let mut total = 0usize;
+    let mut settled = 0usize;
+    for n in nodes {
+        if !is_frame_kind(n.kind.as_deref()) || !descends(&by_id, n, chunk_id) {
+            continue;
+        }
+        total += 1;
+        let badge = if n.id == override_id {
+            override_badge
+        } else {
+            n.badge_str()
+        };
+        if matches!(badge, "o" | "x" | "f") {
+            settled += 1;
+        }
+    }
+    if total == 0 {
+        return None;
+    }
+    Some(format!("확정 {settled}/{total}"))
+}
+
 /// exec-one {oxf,result} → node.edit 필드. oxf가 유효하면 badge를 갱신하고 result는 항상 기록한다.
 pub fn exec_result_to_edit(exec_out: &Value) -> Value {
     let oxf = exec_out.get("oxf").and_then(|v| v.as_str());
@@ -1065,7 +1120,21 @@ pub fn reconcile_tick(deps: &dyn Deps, state: &mut ReconcileState, now_ms: u64) 
     }
     deps.edit_node(&target.id, edit.clone());
     let final_badge = edit.get("badge").and_then(|v| v.as_str()).map(String::from);
-    if final_badge.is_some() {
+    if let Some(badge) = &final_badge {
+        // 보드 모델 — 프레임 badge 확정 시 부모 chunk 진척을 롤업(변화무쌍한 진행중). done chunk(Step 3
+        // 이슈라이즈 게이트가 status=done 설정)는 안 건드린다. badge 축(audit 인증)은 안 건드린다 — status +
+        // description 만. 같은 값 재-edit 은 무해(멱등). 방금 확정한 프레임은 스냅샷 override 로 계수 반영.
+        let by_id: HashMap<String, &Node> = nodes.iter().map(|n| (n.id.clone(), n)).collect();
+        if let Some(chunk) = ancestor_chunk(&by_id, &target) {
+            if chunk.status.as_deref() != Some("done") {
+                if let Some(line) = chunk_progress_line(&nodes, &chunk.id, &target.id, badge) {
+                    deps.edit_node(
+                        &chunk.id,
+                        json!({ "status": "inprogress", "description": line }),
+                    );
+                }
+            }
+        }
         deps.poke();
     }
     json!({ "ok": true, "processed": 1, "id": target.id, "badge": final_badge })
