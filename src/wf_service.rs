@@ -312,6 +312,20 @@ impl ProdDeps<'_> {
     }
 }
 
+/// node.edit 와이어 파라미터 조립 — 변경 필드는 top-level 로 편다("fields" 중첩 아님). 보드 계약
+/// (node.edit)은 평문 { node, title?, description?, status?, badge?, result? … } 를 읽으므로 감싸면
+/// 보드가 top-level 만 보고 변경을 조용히 드롭한다. 순수: emit 없이 와이어 shape 를 결정적으로 검증한다.
+fn node_edit_params(id: &str, fields: Value) -> Value {
+    // json! 은 spread 가 없다 — fields 객체를 base 로 취하고 그 위에 top-level 엔트리를 편다.
+    let mut map = match fields {
+        Value::Object(entries) => entries,
+        _ => Map::new(),
+    };
+    // node 는 마지막에 스탬핑한다 — 대상 id 는 인자이지 fields blob 이 덮을 값이 아니다.
+    map.insert("node".to_string(), Value::String(id.to_string()));
+    Value::Object(map)
+}
+
 impl Deps for ProdDeps<'_> {
     fn list_nodes(&self) -> Vec<Node> {
         self.call_data(&self.cmd("node.list"), json!({ "limit": 100000 }))
@@ -325,11 +339,9 @@ impl Deps for ProdDeps<'_> {
             .and_then(|n| serde_json::from_value(n).ok())
     }
     fn edit_node(&self, id: &str, fields: Value) -> EditResult {
-        let env = self.emit.call(
-            &self.cmd("node.edit"),
-            json!({ "node": id, "fields": fields }),
-            None,
-        );
+        let env = self
+            .emit
+            .call(&self.cmd("node.edit"), node_edit_params(id, fields), None);
         if env.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             EditResult::ok()
         } else {
@@ -838,5 +850,37 @@ mod implementer_tests {
     fn nothing_discovered_is_no_pick_not_a_panic() {
         assert_eq!(pick_implementer(&json!({}), &json!({})), None);
         assert_eq!(pick_implementer(&found(&[]), &found(&[])), None);
+    }
+}
+
+#[cfg(test)]
+mod edit_params_tests {
+    use super::node_edit_params;
+    use serde_json::json;
+
+    // 보드 계약(node.edit)은 평문 { node, badge?, result?, status? … } 를 읽는다. 변경 필드를
+    // "fields" 로 감싸면 보드가 top-level 만 보므로 badge/result/status 쓰기가 조용히 드롭된다.
+    #[test]
+    fn edit_params_are_flat_never_wrapped_in_fields() {
+        let p = node_edit_params(
+            "WMP-1",
+            json!({ "badge": "o", "result": "완료", "status": "done" }),
+        );
+        assert_eq!(p.get("node").and_then(|v| v.as_str()), Some("WMP-1"));
+        assert!(
+            p.get("fields").is_none(),
+            "변경 필드를 감싸면 보드가 무시한다 — top-level 로 편다"
+        );
+        assert_eq!(p.get("badge").and_then(|v| v.as_str()), Some("o"));
+        assert_eq!(p.get("result").and_then(|v| v.as_str()), Some("완료"));
+        assert_eq!(p.get("status").and_then(|v| v.as_str()), Some("done"));
+    }
+
+    // node 는 변경 필드가 덮어쓸 수 없다 — fields 에 node 키가 섞여도 대상 id 가 이긴다.
+    #[test]
+    fn node_id_is_not_overwritten_by_a_stray_field() {
+        let p = node_edit_params("WMP-2", json!({ "node": "WMP-999", "title": "t" }));
+        assert_eq!(p.get("node").and_then(|v| v.as_str()), Some("WMP-2"));
+        assert_eq!(p.get("title").and_then(|v| v.as_str()), Some("t"));
     }
 }
