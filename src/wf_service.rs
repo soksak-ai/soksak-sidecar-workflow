@@ -56,7 +56,9 @@ pub fn pick_implementer(boards: &Value, stores: &Value) -> Option<String> {
 /// 캐시 무효화 추측이 필요 없다(비용 = op 당 발견 왕복 2회, 그 안의 수십 노드 호출은 이 id 를 공유).
 fn resolve_implementer(emit: &Emit) -> Result<String, String> {
     let ask = |contract: &str| -> Value {
-        let env = emit.call("plugin.implementers", json!({ "contract": contract }), None);
+        // 코어 plugin.implementers 는 계약 id 를 { id } 로 받는다(구 { contract } 아님) — 이 파라미터
+        // 이름이 어긋나면 코어가 id=undefined 로 읽어 구현체 0을 돌려주고 보드 발견이 조용히 실패한다.
+        let env = emit.call("plugin.implementers", json!({ "id": contract }), None);
         if env.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             env.get("data").cloned().unwrap_or(Value::Null)
         } else {
