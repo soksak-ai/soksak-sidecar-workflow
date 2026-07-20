@@ -711,6 +711,40 @@ fn build_stage_input(
     Ok(StageInput { stage_body, ledger })
 }
 
+/// 스테이지 → 섹션 제목 — 프레임을 매달 chunk-밑 섹션. research→Research, design 체인 3스테이지→Design(공유),
+/// plan/plan-patch→Plan. Spec 은 apply_draft_doc 소관. 그 밖(generate/audit/body 등)은 섹션 없음.
+fn stage_section_title(stage: &str) -> Option<&'static str> {
+    match stage {
+        "research" => Some("Research"),
+        "design-interface" | "design-domain" | "design-criteria" => Some("Design"),
+        "plan" | "plan-patch" => Some("Plan"),
+        _ => None,
+    }
+}
+
+/// 스테이지 섹션 멱등 발행 — chunk 밑 kind=section·동일 title 이 이미 있으면 그 id 재사용(Design 3스테이지가
+/// 한 섹션 공유), 없으면 발행. 섹션은 badge 없음(pick_ready 제외) + locked + collapsed(자식 숨김).
+/// add_node 실패(None)면 None → 호출부가 프레임을 chunk 직속으로 폴백.
+fn ensure_section(deps: &dyn Deps, chunk_id: &str, title: &str) -> Option<String> {
+    if let Some(existing) = deps.list_nodes().into_iter().find(|n| {
+        n.kind.as_deref() == Some("section")
+            && n.parent_id.as_deref() == Some(chunk_id)
+            && n.title.as_deref() == Some(title)
+    }) {
+        return Some(existing.id);
+    }
+    deps.add_node(json!({
+        "title": title,
+        "parentId": chunk_id,
+        "body": "",
+        "blockedBy": [],
+        "locked": true,
+        "collapsed": true,
+        "type": "task",
+        "kind": "section",
+    }))
+}
+
 // stage 산출 소비 — draftDoc 검증·발행 또는 자식 발행 + classify/audit 처리.
 fn consume_stage_output(
     deps: &dyn Deps,
@@ -761,6 +795,12 @@ fn consume_stage_output(
         StageOut::Children { children, result } => {
             let mut key_of: HashMap<String, String> = HashMap::new();
             let mut role_to_hash: HashMap<String, String> = HashMap::new();
+            // 보드 모델 — 스테이지 프레임(fact/plan-unit)은 chunk 직속이 아니라 chunk 밑 스테이지 섹션 밑에
+            // 매단다(Spec 은 apply_draft_doc 소관). 섹션은 프레임 처음 만날 때 멱등 발행(Design 3스테이지가
+            // 한 섹션 공유). doc 엔진은 board 상태를 못 읽어 멱등 find-or-create 를 못 하니 이 주입은 reconcile 몫.
+            // task/code 자식은 섹션이 아니라 chunk 직속으로 남는다(pick_ready 실행 대상).
+            let section_title = stage_section_title(stage_name);
+            let mut section_id: Option<String> = None;
             for ev in &children {
                 if let Some(reg) = ev
                     .get("register_prompts")
@@ -770,10 +810,27 @@ fn consume_stage_output(
                         role_to_hash.insert(role, hash);
                     }
                 }
-                let parent_id = ev
+                let mut parent_id = ev
                     .get("parent")
                     .and_then(|v| v.as_str())
                     .map(|p| key_of.get(p).cloned().unwrap_or_else(|| p.to_string()));
+                // 프레임이면 스테이지 섹션 밑으로 재부모화(id·badge·blockedBy 불변 — 부모만 바뀜). descends()
+                // 는 부모 체인으로 chunk 까지 올라가니 섹션-밑 프레임도 여전히 chunk 자손(원장/materialize 유지).
+                let is_frame = matches!(
+                    ev.get("kind").and_then(|v| v.as_str()),
+                    Some("fact") | Some("plan-unit")
+                );
+                if is_frame {
+                    if let (Some(title), Some(chunk)) = (section_title, target.parent_id.as_deref())
+                    {
+                        if section_id.is_none() {
+                            section_id = ensure_section(deps, chunk, title);
+                        }
+                        if let Some(sid) = &section_id {
+                            parent_id = Some(sid.clone());
+                        }
+                    }
+                }
                 let blocked_by: Vec<String> = ev
                     .get("blocked_by")
                     .or_else(|| ev.get("blockedBy"))

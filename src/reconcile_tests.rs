@@ -1211,6 +1211,156 @@ fn reconcile_stage_plan_ground_o_only() {
     assert_eq!(fact_ids, vec!["i1"], "plan ground = o 만");
 }
 
+// ── 스테이지 섹션(Research/Design/Plan) 주입 ─────────────────────────────────
+// 보드 모델 — 스테이지 프레임(fact/plan-unit)은 chunk 직속이 아니라 chunk 밑 스테이지 섹션 밑에 매단다.
+// 섹션은 stage_name 으로 결정(research→Research, design-*→Design(공유), plan/plan-patch→Plan). Spec 은
+// apply_draft_doc 소관. 섹션은 검수전 item 처럼 보이면 안 되므로 badge 없음 + kind=section(pick_ready 게이트)
+// + collapsed(자식 숨김). task/code 자식은 섹션이 아니라 chunk 직속으로 남는다.
+#[test]
+fn research_frames_nest_under_research_section() {
+    let ns = nodes(vec![
+        json!({ "id": "research", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"workflow\":\"research\",\"stage\":\"research\",\"args\":{\"directive\":\"정련\"}}" }),
+    ]);
+    let staged = staged_children(
+        vec![
+            json!({ "ev": "add", "id": "fact0", "kind": "fact", "parent": "chunk", "title": "저장소 확정", "badge": "검수전" }),
+            json!({ "ev": "add", "id": "research-audit", "kind": "task", "parent": "chunk", "stage": "research-audit", "title": "완전성 감사", "blocked_by": ["fact0"] }),
+        ],
+        Value::Null,
+    );
+    let d = FakeDeps::new(ns).stage(staged).ledger(vec![]);
+    tick(&d);
+    let add = &d.c().add;
+    // add[0] = Research 섹션(chunk 직속, locked, collapsed, badge 없음, kind=section).
+    assert_eq!(add[0]["kind"], "section", "섹션 kind — pick_ready 제외");
+    assert_eq!(add[0]["title"], "Research");
+    assert_eq!(add[0]["parentId"], "chunk", "Research 섹션은 chunk 직속");
+    assert_eq!(add[0]["locked"], true);
+    assert_eq!(add[0]["collapsed"], true);
+    assert!(add[0].get("badge").is_none(), "섹션은 badge 없음");
+    // add[1] = fact 프레임(Research 섹션 밑, id·badge 불변 → blockedBy 유효). FakeDeps: 섹션 add → "k-1".
+    assert_eq!(add[1]["kind"], "fact");
+    assert_eq!(add[1]["parentId"], "k-1", "fact 는 Research 섹션 밑");
+    assert!(
+        add[1].get("collapsed").is_none(),
+        "leaf 프레임엔 collapsed 없음"
+    );
+    // add[2] = research-audit task 는 섹션이 아니라 chunk 직속.
+    assert_eq!(add[2]["kind"], "task");
+    assert_eq!(add[2]["parentId"], "chunk", "task 는 chunk 직속");
+}
+
+#[test]
+fn design_interface_creates_design_section() {
+    let ns = nodes(vec![
+        json!({ "id": "design-interface", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"workflow\":\"research\",\"stage\":\"design-interface\",\"args\":{\"directive\":\"d\"}}" }),
+    ]);
+    let staged = staged_children(
+        vec![
+            json!({ "ev": "add", "id": "design-interface0", "kind": "fact", "parent": "chunk", "title": "API 경계", "category": "interface", "badge": "o" }),
+            json!({ "ev": "add", "id": "design-domain", "kind": "task", "parent": "chunk", "stage": "design-domain", "title": "도메인 모델", "blocked_by": ["design-interface0"] }),
+        ],
+        Value::Null,
+    );
+    let d = FakeDeps::new(ns).stage(staged).ledger(vec![]).facts(vec![]);
+    tick(&d);
+    let add = &d.c().add;
+    assert_eq!(add[0]["kind"], "section");
+    assert_eq!(
+        add[0]["title"], "Design",
+        "design-interface 는 Design 섹션 발행"
+    );
+    assert_eq!(add[0]["collapsed"], true);
+    assert_eq!(add[1]["kind"], "fact");
+    assert_eq!(
+        add[1]["parentId"], "k-1",
+        "interface fact 는 Design 섹션 밑"
+    );
+    assert_eq!(
+        add[2]["parentId"], "chunk",
+        "design-domain task 는 chunk 직속"
+    );
+}
+
+#[test]
+fn design_stages_share_one_design_section() {
+    // Design 3스테이지(interface/domain/criteria)는 하나의 Design 섹션을 공유 — 멱등 find-or-create.
+    // 이미 Design 섹션이 있으면 재사용(새 섹션 발행 금지), 프레임은 그 밑에 매단다.
+    let ns = nodes(vec![
+        json!({ "id": "sec-design", "kind": "section", "parentId": "chunk", "title": "Design" }),
+        json!({ "id": "design-domain", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"workflow\":\"research\",\"stage\":\"design-domain\",\"args\":{\"directive\":\"d\"}}" }),
+    ]);
+    let staged = staged_children(
+        vec![
+            json!({ "ev": "add", "id": "design-domain0", "kind": "fact", "parent": "chunk", "title": "주문 애그리게잇", "category": "domain-model", "badge": "o" }),
+            json!({ "ev": "add", "id": "design-criteria", "kind": "task", "parent": "chunk", "stage": "design-criteria", "title": "수용 기준", "blocked_by": ["design-domain0"] }),
+        ],
+        Value::Null,
+    );
+    let d = FakeDeps::new(ns).stage(staged).ledger(vec![]).facts(vec![]);
+    tick(&d);
+    let add = &d.c().add;
+    assert!(
+        add.iter().all(|p| p["kind"] != "section"),
+        "기존 Design 섹션 재사용 — 중복 섹션 발행 금지"
+    );
+    let fact = add.iter().find(|p| p["kind"] == "fact").unwrap();
+    assert_eq!(
+        fact["parentId"], "sec-design",
+        "domain fact 는 공유 Design 섹션 밑"
+    );
+    let crit = add.iter().find(|p| p["kind"] == "task").unwrap();
+    assert_eq!(
+        crit["parentId"], "chunk",
+        "design-criteria task 는 chunk 직속"
+    );
+}
+
+#[test]
+fn plan_units_nest_under_plan_section() {
+    let ns = nodes(vec![
+        json!({ "id": "plan", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"workflow\":\"research\",\"stage\":\"plan\",\"args\":{\"directive\":\"d\"}}" }),
+    ]);
+    let staged = staged_children(
+        vec![
+            json!({ "ev": "add", "id": "unit0", "kind": "plan-unit", "parent": "chunk", "title": "재고 차감", "description": "PSEUDO", "category": "src/a.ts", "badge": "o" }),
+        ],
+        Value::Null,
+    );
+    let d = FakeDeps::new(ns).stage(staged).ledger(vec![]).facts(vec![]);
+    tick(&d);
+    let add = &d.c().add;
+    assert_eq!(add[0]["kind"], "section");
+    assert_eq!(add[0]["title"], "Plan");
+    assert_eq!(add[0]["collapsed"], true);
+    assert!(add[0].get("badge").is_none());
+    assert_eq!(add[1]["kind"], "plan-unit", "프레임 kind 불변");
+    assert_eq!(add[1]["parentId"], "k-1", "plan-unit 은 Plan 섹션 밑");
+    assert!(
+        add[1].get("collapsed").is_none(),
+        "leaf 프레임엔 collapsed 없음"
+    );
+}
+
+#[test]
+fn pick_ready_excludes_section_and_ledger_descends_through_section() {
+    // 가드레일 — 섹션은 pick_ready 대상 아님(kind=section, badge 없음). build_ledger 는 섹션-밑 프레임을
+    // chunk 자손으로 수집(descends 부모 체인 2단: fact→section→chunk).
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+        json!({ "id": "sec", "kind": "section", "parentId": "chunk", "title": "Research" }),
+        json!({ "id": "f0", "kind": "fact", "parentId": "sec", "title": "저장소", "badge": "검수전" }),
+    ]);
+    let ready = pick_ready(&ns);
+    assert!(
+        ready.iter().all(|n| n.kind.as_deref() != Some("section")),
+        "섹션은 실행/검증 대상 아님"
+    );
+    let led = build_ledger(&ns, "chunk", "fact");
+    assert_eq!(led.len(), 1, "섹션 밑 fact 도 chunk 자손 원장에 수집");
+    assert_eq!(led[0]["id"], "f0");
+}
+
 // ── exportTick (chunk 4) ────────────────────────────────────────────────────
 #[test]
 fn export_tick_o_codes_only_proof_stripped() {
