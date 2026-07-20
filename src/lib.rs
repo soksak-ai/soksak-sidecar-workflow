@@ -4,7 +4,6 @@
 
 pub mod consensus;
 pub mod derive_directive;
-pub mod directive_loop;
 pub mod doc_exec;
 pub mod domain_lib;
 pub mod draft_doc;

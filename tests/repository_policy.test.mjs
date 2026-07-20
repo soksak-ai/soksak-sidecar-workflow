@@ -60,14 +60,6 @@ test("first-party contract identifiers use the 0.0.1 baseline", () => {
   assert.match(read("src/wf_service.rs"), /soksak-spec-plugin-prompt-store@0\.0\.1/);
 });
 
-test("the directive loop requires a declared store and never polls or kills its lock owner", () => {
-  const source = read("src/bin/directive-loop.rs");
-  assert.doesNotMatch(source, /PathBuf::from\("ledger\.json"\)/);
-  assert.doesNotMatch(source, /Command::new\("kill"\)/);
-  assert.doesNotMatch(source, /for _ in 0\.\.100/);
-  assert.match(source, /--store requires an absolute path/);
-});
-
 test("repository and workflow files are regular files only", () => {
   const walk = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {

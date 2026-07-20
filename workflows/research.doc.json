@@ -36,10 +36,6 @@
         "pseudocode"
       ],
       "default": ""
-    },
-    "gaps": {
-      "type": "string",
-      "description": "plan-audit 이 지적한 누락 표면 목록(불릿 문자열) — plan-patch 전용."
     }
   },
   "values": {
@@ -341,52 +337,6 @@
         }
       }
     },
-    "PLAN_AUDIT_SCHEMA": {
-      "type": "object",
-      "required": [
-        "complete",
-        "verdict",
-        "gaps"
-      ],
-      "properties": {
-        "complete": {
-          "type": "boolean"
-        },
-        "gaps": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "contradictions": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "verdict": {
-          "type": "string"
-        },
-        "removals": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "id",
-              "reason"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "reason": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    },
     "CHANGES_SCHEMA": {
       "type": "object",
       "required": [
@@ -436,8 +386,6 @@
     "design-interface": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above governs this step; do NOT restate it.)\n\nYOUR ROLE — ARCHITECT (INTERFACES only, one turn). From the certified requirements ledger and the fixed ground below, COMMIT the INTERFACES design facts the build will take. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = \"interface\", origin = \"agent\". The ledger and the facts are your INPUT — no echo of parent data. Facts already on the ground (including sibling design facts, if present) are FIXED — do not re-decide or duplicate them.\n\nINTERFACES (category \"interface\"):\n- One fact = ONE seam contract two or more build units cross (a shared type with its variants, one service's request/response pair, one error taxonomy). A type only ONE unit ever constructs AND consumes is PRIVATE to that unit — do NOT hoist it here. title = the contract's name.\n- description CONTAINS the contract as COMPILABLE REAL CODE in the language the facts fixed — a fenced code block any human or LLM pastes VERBATIM into a file of that language and it compiles with ZERO edits. NO pseudocode. NO sketch. NO `// fields go here`. NO name with an elided body, NO placeholder, NO TODO, NO `...`. A type you would \"fill in later\" is not a contract — write it in full now or do not write it.\n- ERROR SHAPE IS PART OF THE CONTRACT: a boundary that can fail DECLARES how it fails — the error type, the result/either wrapper, the exception it raises, the nullable/optional it returns. A signature honorable only on the happy path is an incomplete contract.\n- The stack is ALREADY decided by the verified facts — write every declaration in exactly that language. Introduce a second language ONLY where the facts compel a genuine cross-language seam (e.g. a `sql` schema the `typescript` layer binds to), never to restate the same type twice.\n- An interface represents an entity you decided as a DOMAIN-MODEL fact — name that entity, by its exact fact name, in a code comment, and declare only the shape that crosses the seam. Do NOT re-derive, re-shape, or re-decide the entity here; the domain-model fact OWNS it, this fact owns only the boundary.\n\n\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
     "design-domain": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above governs this step; do NOT restate it.)\n\nYOUR ROLE — ARCHITECT (DOMAIN MODELS only, one turn). From the certified requirements ledger and the fixed ground below, COMMIT the DOMAIN MODELS design facts the build will take. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = \"domain-model\", origin = \"agent\". The ledger and the facts are your INPUT — no echo of parent data. Facts already on the ground (including sibling design facts, if present) are FIXED — do not re-decide or duplicate them.\n\nDOMAIN MODELS (category \"domain-model\"):\n- One fact = one entity, or one relationship, or one index. Never fold an entire schema into a single fact.\n- An ENTITY fact: title = the entity's snake_case name. description lists each field as {name, concrete storage type, constraints}. The type is a real storage type (UUID, VARCHAR, INT, BIGINT, BOOLEAN, TIMESTAMP, DATE, DECIMAL(10,2), ENUM(a,b,...), JSONB, ...), never a vague \"object\" / \"any\". The ONLY admissible constraint forms are: PK · FK->\\<entity\\>.\\<field\\> · NOT NULL · UNIQUE · DEFAULT \\<value\\> · CHECK \\<expr\\>. Emit nothing outside this set. Every FK->\\<entity\\>.\\<field\\> MUST resolve to a field of an entity you also emit as a fact — a dangling FK is a defect.\n- A RELATIONSHIP fact: title = the one-line link. description states the type (belongs-to · has-one · has-many · many-to-many) and the FK path that realizes it (e.g. \"canisters.hospital_id -> hospitals.id\"); the relationship type MUST agree with the FK direction (the side holding the FK belongs-to the target; the target has-many / has-one that side). A many-to-many is NOT a fact on its own — emit the JOIN ENTITY (a domain-model fact carrying both FKs) instead.\n- An INDEX fact (only where a requirement forces a lookup or a uniqueness the columns do not already give): title names the index; description states the entity, the field(s), and whether unique.\n- Model EXACTLY what the requirements compel and the facts fix — no scaffolding / ORM / framework table the requirements never demand, and never DROP state a requirement plainly needs persisted.\n\n\n- COMMIT WHAT THE GROUND REFERENCES: every entity, column, and type an upstream interface fact references MUST be committed here as a real domain fact (a dangling reference — an interface standing on a table or column no domain fact declares — is a defect). Where an upstream fact fixed a name or a type, inherit it VERBATIM. And commit the columns the requirements' judgements will need (a name/identity column a criterion must compare, a status a transition must read) — a missing judgement handle is a defect.\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
     "design-criteria": "{{DESIGN_COMMON}}\n\n(DESIGN_COMMON above governs this step; do NOT restate it.)\n\nYOUR ROLE — ARCHITECT (ACCEPTANCE CRITERIA only, one turn). From the certified requirements ledger and the fixed ground below, COMMIT the ACCEPTANCE CRITERIA design facts the build will take. You produce facts[]: each item is ONE design fact node — title = the decision in one line, description = the decision in full (with its citations), category = \"criterion\", origin = \"agent\". The ledger and the facts are your INPUT — no echo of parent data. Facts already on the ground (including sibling design facts, if present) are FIXED — do not re-decide or duplicate them.\n\nACCEPTANCE CRITERIA (category \"criterion\"):\n- One fact = ONE falsifiable test of ONE make-or-break requirement: a concrete act whose result a checker reads and calls PASS or FAIL. NOT a restatement of a requirement, NOT a wish (\"works correctly\"), NOT a nice-to-have. If two competent reviewers could disagree on whether it passed, sharpen the observable until they cannot. title = the criterion in one line.\n- description states, each concrete: actor (WHO performs the act — one agent: a user, the build, a caller, the runtime, a test harness; not \"the system\" in the abstract) · action (the single concrete act, not a bundle) · expected_outcome (what MUST result if the requirement holds) · observable (the exact measurable signal a checker READS — a command's exit code / stdout, a file's parsed content, a DOM/view state, a socket response payload; vague verbs — handle, support, work, be robust — are FORBIDDEN). It then names the SURFACE and the REQUIRED_PROOF.\n- SURFACE = where the behavior actually lives; pick it FIRST, from the nature of the requirement: static-config (satisfied by the static content of a config/manifest/declaration file, proven by the build parsing it — no runtime) · declaration-only (satisfied by the presence/shape of a declaration with no runtime behavior, proven at build/compile) · pure-logic (a deterministic pure function, input to output, no I/O and no environment) · browser-runtime (manifests only in the rendered UI — DOM, view, user-visible interaction) · system-runtime (crosses a real system boundary — process, filesystem, socket, IPC, subprocess).\n- THE SURFACE-TO-PROOF LAW — the surface DECIDES the proof; they are NOT two free choices:\n    static-config -> build · declaration-only -> build · pure-logic -> unit · browser-runtime -> e2e · system-runtime -> integration by DEFAULT, and e2e ONLY when the behavior is observable solely through the whole running app. That single discriminator is the deterministic tie-breaker for system-runtime — there is no free choice.\n  A mismatched pair is WRONG and rejected — pure-logic with e2e, browser-runtime with unit, static-config with integration are all invalid. Choose surface first, let proof follow; never pick the proof to inflate or deflate rigor.\n- Examples: \"the theme JSON parses to exactly the declared token set\" -> static-config, build. \"a registered command exposes its danger flag to the CLI\" -> declaration-only, build. \"the link resolver detects a cycle and rejects it\" -> pure-logic, unit. \"clicking the split button renders two panes\" -> browser-runtime, e2e. \"term.exec returns the subprocess exit code over the socket\" -> system-runtime, integration.\n- COVERAGE, no padding: every make-or-break requirement the ledger carries is covered by at least one criterion; every criterion proves at least one real requirement [id]. Several criteria may cover one requirement when it has distinct observables; one criterion may cover several requirements when a single observable proves them jointly. Do NOT invent criteria the requirements do not compel; do NOT split one observable into ceremonial duplicates.\n\norigin: set \"user\" when the directive states or implies the decision (its own words back it); set \"agent\" when you reasoned it against the ledger + facts. There is NO \"search\" — you do not investigate, you stand on the fixed ground.\n- COVERAGE IS A CONTRACT, NOT A PREFERENCE: EVERY requirement in the ledger gets AT LEAST ONE falsifiable criterion that proves it — one requirement, one dedicated verdict (bundling several requirements into one criterion loses per-requirement isolation and is a defect). A requirement you judge unverifiable is NEVER silently skipped — emit a criterion fact that STATES it is unverifiable and WHY. Before you finish, walk the ledger top to bottom and check every [id] appears in at least one criterion's citations — a missing id is a defect, not a stylistic choice.\n\nCertified requirements ledger:\n{{ledger}}\n\nFixed ground (verified facts):\n{{facts}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
-    "plan-audit": "YOUR ROLE — PLAN AUDITOR (the file plan's parent certification). The per-unit verdicts are already set — do NOT re-judge units one by one. CERTIFY THE ASSEMBLED FILE SET: do these files, taken together, assemble into a system a builder can BUILD, DEPLOY, and OPERATE that delivers every certified requirement? Judge four axes, one verdict:\n- MISSING SURFACES (the axis unit-level checks cannot see): walk the OPERATING reality of this system — who signs in (auth surface), who administers hospitals/members/roles (admin console), who reads the audit ledger and inspection records (review screens), what runs on schedule (jobs/batch), how the pieces boot and wire together (entrypoint, routing, DI), how migrations run in order. A requirement 'covered' by a service file but OPERATED through a screen that does not exist is a GAP. List each missing file/surface as a gap: a one-line file-unit request (\"<path> — what it must do, citing the requirement ids it operates\").\n- CONTRADICTION: two files whose stated contracts conflict so a builder is blocked until one is overruled.\n- SUFFICIENCY: assembled, does the set reach the directive's goal as a deployable whole — not just cover ids?\n- OPERATIONAL ROBUSTNESS: does the file set include the files that make the system SURVIVE real operation — a file owning concurrency/conflict control on shared state (whose write wins), findability at scale (search/filter/index, not only single-item screens), fallback/retry for a depended-on external step's failure, and role→action enforcement — each required by the established ground? A set that assembles on the happy path but has no file handling conflict, scale, failure, or the role boundary is unbuilt for operation. List each missing file as a gap.\nSet complete=true ONLY if no operating-surface gaps, no unresolved contradictions, and the set genuinely assembles. verdict = one paragraph. Scope rule — the boundary is NECESSITY, not MENTION: a surface the directive never names is still IN scope when the system cannot be genuinely built, operated, or accounted for without it (the make-or-break test), and that reach covers EVERY actor the system implies — its users, its counterparties, its administrators, and the off-stage actor who runs the result itself (by domain, the platform operator, live-ops, the deployer, or the administrator — every built thing implies its own operating layer). What stays OUT is the merely-nice: features whose absence degrades polish, not viability. Do NOT pad with those.\n\nREMOVE (removals) — self-correction, not only addition: the loop must also drop units that do not belong, or a human has to delete them by hand. Scan the certified file plan for any unit that is refuted, redundant with another unit, or outside the directive's scope. Each = one removals entry {\"id\": the exact unit id, \"reason\": why it goes}. Remove ONLY wrong/redundant/out-of-scope — never a unit merely worded differently. removals is ALWAYS present: empty array when every unit belongs. Consensus = a round with no gaps AND no removals.\n\nThe certified file plan (every unit: title — file):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
-    "plan-patch": "YOUR ROLE — PLAN PATCHER (incremental planning on an already-certified file plan). The plan auditor found OPERATING-SURFACE GAPS in the existing plan. Author file units ONLY for the gap surfaces below — the same contract as the original planner: one unit = ONE file (file_path names exactly one file; if a gap spans a service and a page, emit one unit per file), pseudocode a builder can implement without asking (inputs/outputs, key flows, acceptance checks), each unit citing the requirement ids it operates in prose. Do NOT re-plan, rename, or duplicate any file already in the existing plan — its file list is FIXED ground.\n\nGAP SURFACES (each becomes one or more file units):\n{{gaps}}\n\nEXISTING PLAN (fixed — do not touch, do not duplicate):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY the JSON (same schema as the planner).",
     "research-audit": "{{RESEARCH_COMMON}}\n\nYOUR ROLE — CONSENSUS REVIEWER (완전성 합의 루프, round {{round}} of max 20).\n\nYou are given a DOCUMENT: a JSON list of items, each with a `state` (o=accepted, x=removed) and a full decision `history` (add/remove/reraise, each with its reason). Deliberate against it and output CHANGES; the loop repeats until a round makes no change (consensus).\n\nTHE DOCUMENT (items with history):\n{{document}}\n\nDirective: \"{{directive}}\"\n\nDELIBERATE over the ground (facts), then output changes[]:\n- ADD (op:add, title, description, reason) — every make-or-break still MISSING. Lenses: framework/stack completeness(every load-bearing layer pinned to a CURRENT version, mutually compatible) · operating surfaces(each actor's own screen) · methodology/gates · domain obligation(law/standard — the SPECIFIC trigger/deadline/duty, grounded by search) · operational robustness. CONCRETIZATION (mention is not completeness) — for every distinctive thing the directive spells out (an unusual unit, a special-case rule, a non-default value, an exception), check it is OPERATIONALIZED, not merely named as an attribute. If the directive says a value 'can be set to 1/12', capturing 'a unit field' is HALF — that value ripples into every operation it touches (counting, deduction, display, reconciliation, validation), and those must be present too. The small, obvious-looking rules the directive bothered to specify carry the biggest ripples. A named-but-unrealized mechanic is a gap to fill, not a covered requirement. Ground external facts by search(context7/web). BIAS TOWARD COMPLETENESS: when borderline load-bearing, ADD it — over-reach is corrected by a later remove; a gap left out may never be found (allowing borderline adds is what gives the loop something to prune).\n- REMOVE (op:remove, id, reason) — any accepted [o] item that is refuted/wrong, redundant with another BY MEANING, or outside the directive's scope. State why in reason.\n- RERAISE (op:reraise, id, reason) — a removed [x] item may be brought back ONLY with a reason that directly COUNTERS the reason it was removed (in its history). Re-raising on already-countered grounds is oscillation — forbidden.\n\nEVERY change MUST carry its reason (근거) — it is appended to the item's history. CONVERGENCE DISCIPLINE: this round must FINISH it — surface EVERY remaining change at once, do not dribble one or two per round; if you are past round 1, prior rounds left gaps, close them ALL now. If the NEXT round still changes what you touched, you mis-judged. When the set is complete and correct, output an EMPTY changes array — that is consensus. Do any needed search first.\n\nFINAL message = ONLY {\"changes\":[...]}.",
     "design-audit": "{{RESEARCH_COMMON}}\n\nYOUR ROLE — CONSENSUS REVIEWER (완전성 합의 루프, round {{round}} of max 20).\n\nYou are given a DOCUMENT: a JSON list of items, each with a `state` (o=accepted, x=removed) and a full decision `history` (add/remove/reraise, each with its reason). Deliberate against it and output CHANGES; the loop repeats until a round makes no change (consensus).\n\nTHE DOCUMENT (items with history):\n{{document}}\n\nDirective: \"{{directive}}\"\n\nDELIBERATE over the ground (facts), then output changes[]:\n- ADD (op:add, title, description, reason) — every make-or-break still MISSING. Lenses: framework/stack completeness(every load-bearing layer pinned to a CURRENT version, mutually compatible) · operating surfaces(each actor's own screen) · methodology/gates · domain obligation(law/standard — the SPECIFIC trigger/deadline/duty, grounded by search) · operational robustness. CONCRETIZATION (mention is not completeness) — for every distinctive thing the directive spells out (an unusual unit, a special-case rule, a non-default value, an exception), check it is OPERATIONALIZED, not merely named as an attribute. If the directive says a value 'can be set to 1/12', capturing 'a unit field' is HALF — that value ripples into every operation it touches (counting, deduction, display, reconciliation, validation), and those must be present too. The small, obvious-looking rules the directive bothered to specify carry the biggest ripples. A named-but-unrealized mechanic is a gap to fill, not a covered requirement. Ground external facts by search(context7/web). BIAS TOWARD COMPLETENESS: when borderline load-bearing, ADD it — over-reach is corrected by a later remove; a gap left out may never be found (allowing borderline adds is what gives the loop something to prune).\n- REMOVE (op:remove, id, reason) — any accepted [o] item that is refuted/wrong, redundant with another BY MEANING, or outside the directive's scope. State why in reason.\n- RERAISE (op:reraise, id, reason) — a removed [x] item may be brought back ONLY with a reason that directly COUNTERS the reason it was removed (in its history). Re-raising on already-countered grounds is oscillation — forbidden.\n\nEVERY change MUST carry its reason (근거) — it is appended to the item's history. CONVERGENCE DISCIPLINE: this round must FINISH it — surface EVERY remaining change at once, do not dribble one or two per round; if you are past round 1, prior rounds left gaps, close them ALL now. If the NEXT round still changes what you touched, you mis-judged. When the set is complete and correct, output an EMPTY changes array — that is consensus. Do any needed search first.\n\nFINAL message = ONLY {\"changes\":[...]}."
   },
@@ -890,112 +838,6 @@
       {
         "op": "return",
         "value": {}
-      }
-    ],
-    "plan-audit": [
-      {
-        "op": "agent",
-        "prompt": "plan-audit",
-        "schema": "PLAN_AUDIT_SCHEMA",
-        "label": "플랜 전체 인증",
-        "bind": "a"
-      },
-      {
-        "op": "return",
-        "value": {
-          "complete": {
-            "$": "a.complete",
-            "or": false
-          },
-          "gaps": {
-            "$": "a.gaps",
-            "or": []
-          },
-          "verdict": {
-            "$": "a.verdict",
-            "or": ""
-          },
-          "removals": {
-            "$": "a.removals",
-            "or": []
-          }
-        }
-      }
-    ],
-    "plan-patch": [
-      {
-        "op": "agent",
-        "prompt": "plan-patch",
-        "schema": "PLAN_SCHEMA",
-        "label": "플랜 증분 저작",
-        "bind": "p"
-      },
-      {
-        "op": "forEach",
-        "in": "p.units",
-        "when": "item.title",
-        "do": [
-          {
-            "op": "publish",
-            "node": {
-              "id": {
-                "auto": "unit"
-              },
-              "kind": "plan-unit",
-              "parent": {
-                "$": "args.chunkRef",
-                "or": "chunk"
-              },
-              "title": {
-                "$": "item.title"
-              },
-              "description": {
-                "$": "item.pseudocode"
-              },
-              "category": {
-                "$": "item.file_path",
-                "or": ""
-              },
-              "badge": {
-                "$": "values.PENDING"
-              },
-              "schema": "VERIFY_SCHEMA",
-              "promptRole": "plan-verify",
-              "vars": {
-                "title": {
-                  "$": "item.title"
-                },
-                "description": {
-                  "$": "item.pseudocode"
-                }
-              },
-              "varRefs": {
-                "directive": "directive"
-              },
-              "registerPromptsOnce": {
-                "plan-verify": {
-                  "$": "values.PLAN_VERIFY_TMPL"
-                },
-                "directive": {
-                  "$": "args.directive"
-                }
-              },
-              "effort": {
-                "$": "item.effort",
-                "or": ""
-              }
-            }
-          }
-        ]
-      },
-      {
-        "op": "return",
-        "value": {
-          "published": {
-            "$": "unitIds",
-            "or": []
-          }
-        }
       }
     ],
     "research-audit": [

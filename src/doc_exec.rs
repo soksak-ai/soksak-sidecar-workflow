@@ -1522,12 +1522,11 @@ mod tests {
             description.contains("acceptance"),
             "슈도코드 전문(검증 방법 포함) = description"
         );
-        // 적재적소: plan-unit 은 검증된 요건+fact 의 구현 투영(파생물) — 개별 반박 생략, set-레벨 plan-audit 가
-        // 파일셋 완전성·정합 담당. badge=o, verify 미부착.
+        // 적재적소: plan-unit 은 검증된 요건+fact 의 구현 투영(파생물) — 개별 반박 생략. badge=o, verify 미부착.
         assert_eq!(
             badge.as_deref(),
             Some("o"),
-            "plan-unit = 파생물 → 개별 반박 생략(badge o), plan-audit 가 커버"
+            "plan-unit = 파생물 → 개별 반박 생략(badge o)"
         );
         assert_eq!(
             category.as_deref(),
@@ -1804,29 +1803,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    /// [번들 정본] plan-audit 도 remove 통과(4번째 완전성 지점). return {complete,gaps,verdict} 였던 것에
-    /// removals 추가 — reconcile 이 대상 unit badge→x.
-    #[test]
-    fn bundled_plan_audit_returns_removals() {
-        let doc: Json =
-            serde_json::from_str(include_str!("../workflows/research.doc.json")).unwrap();
-        let args = json!({ "directive": "d", "chunkRef": "K-7", "ledger": [{ "id": "u1", "title": "t", "badge": "o" }] });
-        let mut agent = |_p: &str, _s: Option<&Json>, _l: &str| {
-            Ok(json!({
-                "complete": true, "verdict": "1 유닛 제거", "gaps": [],
-                "removals": [{ "id": "u1", "reason": "지시서 범위밖 유닛 — 자기교정" }]
-            }))
-        };
-        let (_ev, ret) = run(&doc, "plan-audit", &args, &mut agent).expect("plan-audit");
-        let removals = ret
-            .get("removals")
-            .and_then(|r| r.as_array())
-            .expect("plan-audit removals 통과");
-        assert_eq!(removals.len(), 1);
-        assert_eq!(removals[0]["id"], "u1");
-        assert_eq!(removals[0]["reason"], "지시서 범위밖 유닛 — 자기교정");
     }
 
     /// [번들 정본] workflows/draft.doc.json — 정련 주입(inject_refinement) 후 유효 doc 이 되는지.

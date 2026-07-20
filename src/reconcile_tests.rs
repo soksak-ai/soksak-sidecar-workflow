@@ -1894,13 +1894,6 @@ fn stage_published_marker_variants() {
         json!({ "id": "hunt", "kind": "task", "parentId": "chunk" }),
     ]);
     assert!(stage_published_marker(&target, "{}", "generate", &ns));
-    // hunt: blockedBy 밖의 item 있으면 발행됨.
-    let hunt =
-        node(json!({ "id": "hunt", "kind": "task", "parentId": "chunk", "blockedBy": ["i1"] }));
-    let ns2 = nodes(vec![
-        json!({ "id": "add0", "kind": "item", "parentId": "chunk" }),
-    ]);
-    assert!(stage_published_marker(&hunt, "{}", "hunt", &ns2));
     // body: file_path 일치 code(badge≠f/x) 있으면 발행됨.
     let bodyt = node(json!({ "id": "b", "kind": "task", "parentId": "chunk" }));
     let ns3 = nodes(vec![

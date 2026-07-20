@@ -155,43 +155,6 @@
         }
       }
     },
-    "HUNT_SCHEMA": {
-      "type": "object",
-      "required": [
-        "additions"
-      ],
-      "properties": {
-        "additions": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "title",
-              "description",
-              "origin"
-            ],
-            "properties": {
-              "title": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "origin": {
-                "type": "string",
-                "enum": [
-                  "agent",
-                  "search"
-                ]
-              },
-              "reason": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    },
     "AUDIT_SCHEMA": {
       "type": "object",
       "required": [

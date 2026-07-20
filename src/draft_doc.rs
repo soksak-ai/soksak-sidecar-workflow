@@ -186,7 +186,6 @@ pub fn build(events: &[NodeEvent]) -> Result<DraftDoc, String> {
 ///   ② FK — task.blocked_by ∈ requirements ∪ tasks. (category FK 규칙 제거 — 평탄.)
 ///   ③ 완결 — 요건마다 title·description 비지 않음 · origin ∈ {user,agent,search}.
 ///   ④ 정규화 불변 — 요건에 schema/directive/template/category 이름 인라인 0(고유 필드만; 구조로 보장).
-///   ⑤ 트리 — hunt.blocked_by = 전 요건 · classify.blocked_by = 전 요건 ∪ {hunt} · audit.blocked_by = 전 요건 ∪ {hunt,classify}.
 ///   ⑦ 비어있지 않음 — requirements ≥ 1. (categories≥1 규칙 제거 — 평탄.)
 ///   ⑧ 배지 enum — requirement.badge ∈ {검수전,o,x,f}(빈 값은 initial_badge 폴백 — 허용) · initial_badge ∈ enum.
 ///     비enum 배지는 칸반이 드랍해 "검수전 필터에도 done 판정에도 안 걸리는" 영구 not-done 무음 정지가 된다.
@@ -245,59 +244,6 @@ pub fn validate(doc: &DraftDoc) -> Result<(), Vec<String>> {
                 "[③] requirement {:?} origin {:?} ∉ {{user,agent,search}}",
                 r.id, r.origin
             ));
-        }
-    }
-
-    // ⑤ 트리 — hunt.blocked_by = 전 요건 · classify.blocked_by = 전 요건 ∪ {hunt} · audit.blocked_by = 전 요건 ∪ {hunt,classify}.
-    // 각 stage task 가 존재할 때만 검사(hunt-단독 재실행 등 부분 문서는 일부 task 만 있을 수 있음).
-    let req_ids: std::collections::BTreeSet<&str> =
-        doc.requirements.iter().map(|r| r.id.as_str()).collect();
-    let hunt_id = doc
-        .tasks
-        .iter()
-        .find(|t| t.stage == "hunt")
-        .map(|t| t.id.as_str());
-    let classify_id = doc
-        .tasks
-        .iter()
-        .find(|t| t.stage == "classify")
-        .map(|t| t.id.as_str());
-    if let Some(hunt) = doc.tasks.iter().find(|t| t.stage == "hunt") {
-        let hb: std::collections::BTreeSet<&str> =
-            hunt.blocked_by.iter().map(|s| s.as_str()).collect();
-        if hb != req_ids {
-            v.push("[⑤] hunt.blocked_by ≠ 전 요건 id 집합".to_string());
-        }
-    }
-    if let Some(classify) = doc.tasks.iter().find(|t| t.stage == "classify") {
-        let cb: std::collections::BTreeSet<&str> =
-            classify.blocked_by.iter().map(|s| s.as_str()).collect();
-        // 기대 = 전 요건 ∪ {hunt}(hunt 존재 시).
-        let mut expected: std::collections::BTreeSet<&str> = req_ids.clone();
-        if let Some(hid) = hunt_id {
-            expected.insert(hid);
-        }
-        if hunt_id.is_none() {
-            v.push("[⑤] classify 존재하나 hunt task 부재(분류는 hunt 후행)".to_string());
-        } else if cb != expected {
-            v.push("[⑤] classify.blocked_by ≠ 전 요건 ∪ {hunt}".to_string());
-        }
-    }
-    if let Some(audit) = doc.tasks.iter().find(|t| t.stage == "audit") {
-        let ab: std::collections::BTreeSet<&str> =
-            audit.blocked_by.iter().map(|s| s.as_str()).collect();
-        // 기대 = 전 요건 ∪ {hunt task id, classify task id}(각각 존재 시).
-        let mut expected: std::collections::BTreeSet<&str> = req_ids.clone();
-        if let Some(hid) = hunt_id {
-            expected.insert(hid);
-        }
-        if let Some(cid) = classify_id {
-            expected.insert(cid);
-        }
-        if hunt_id.is_none() {
-            v.push("[⑤] audit 존재하나 hunt task 부재(감사는 hunt 후행)".to_string());
-        } else if ab != expected {
-            v.push("[⑤] audit.blocked_by ≠ 전 요건 ∪ {hunt,classify}".to_string());
         }
     }
 
@@ -691,56 +637,6 @@ mod tests {
             errs.iter()
                 .any(|e| e.contains("[③]") && e.contains("origin")),
             "origin enum 위반: {errs:?}"
-        );
-    }
-
-    #[test]
-    fn validate_rule5_rejects_wrong_hunt_blocked_by() {
-        let mut doc = build(&good_events()).unwrap();
-        // hunt 이 전 요건이 아닌 일부만 blockedBy — 트리 무결성 위반.
-        doc.tasks
-            .iter_mut()
-            .find(|t| t.stage == "hunt")
-            .unwrap()
-            .blocked_by = vec!["i0".to_string()];
-        let errs = validate(&doc).unwrap_err();
-        assert!(
-            errs.iter().any(|e| e.contains("[⑤]") && e.contains("hunt")),
-            "hunt 트리 위반: {errs:?}"
-        );
-    }
-
-    #[test]
-    fn validate_rule5_rejects_wrong_classify_blocked_by() {
-        let mut doc = build(&good_events()).unwrap();
-        // classify 가 hunt 를 빠뜨림(전 요건만) — 분류는 hunt 후행이어야.
-        doc.tasks
-            .iter_mut()
-            .find(|t| t.stage == "classify")
-            .unwrap()
-            .blocked_by = vec!["i0".to_string(), "i1".to_string()];
-        let errs = validate(&doc).unwrap_err();
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("[⑤]") && e.contains("classify")),
-            "classify 트리 위반: {errs:?}"
-        );
-    }
-
-    #[test]
-    fn validate_rule5_rejects_wrong_audit_blocked_by() {
-        let mut doc = build(&good_events()).unwrap();
-        // audit 이 classify 를 빠뜨림.
-        doc.tasks
-            .iter_mut()
-            .find(|t| t.stage == "audit")
-            .unwrap()
-            .blocked_by = vec!["i0".to_string(), "i1".to_string(), "hunt".to_string()];
-        let errs = validate(&doc).unwrap_err();
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("[⑤]") && e.contains("audit")),
-            "audit 트리 위반: {errs:?}"
         );
     }
 

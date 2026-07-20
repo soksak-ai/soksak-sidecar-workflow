@@ -348,15 +348,11 @@ pub fn stage_published_marker(target: &Node, body: &str, stage_name: &str, nodes
     let Some(parent_id) = &target.parent_id else {
         return false;
     };
-    let hunt_blocked: HashSet<&String> = target.blocked_by.iter().collect();
     let child_of = |n: &Node| n.parent_id.as_ref() == Some(parent_id);
     match stage_name {
         "generate" => nodes
             .iter()
             .any(|n| child_of(n) && n.kind.as_deref() == Some("task") && n.id != target.id),
-        "hunt" => nodes.iter().any(|n| {
-            child_of(n) && n.kind.as_deref() == Some("item") && !hunt_blocked.contains(&n.id)
-        }),
         "research" => nodes
             .iter()
             .any(|n| child_of(n) && n.kind.as_deref() == Some("fact")),
@@ -685,18 +681,6 @@ fn build_stage_input(
             ledger: Some(doc),
         });
     }
-    // audit 라운드(렌즈 회전 + 합의 remove)도 검증된 o-fact 를 봐야 앱에서 감사가 실효 — 없으면 빈 facts 로
-    // 돌아 무의미. ledger_stages/o_only 에 포함해 board 에서 fact 주입.
-    let audit_stages: HashSet<&str> = [
-        "research-audit",
-        "research-audit-2",
-        "research-audit-3",
-        "design-audit",
-        "design-audit-2",
-        "design-audit-3",
-    ]
-    .into_iter()
-    .collect();
     let ledger_stages: HashSet<&str> = [
         "hunt",
         "classify",
@@ -708,7 +692,6 @@ fn build_stage_input(
         "design-criteria",
     ]
     .into_iter()
-    .chain(audit_stages.iter().copied())
     .collect();
     let o_only: HashSet<&str> = [
         "plan",
@@ -717,7 +700,6 @@ fn build_stage_input(
         "design-criteria",
     ]
     .into_iter()
-    .chain(audit_stages.iter().copied())
     .collect();
     let mut stage_body = body.to_string();
     let mut ledger: Option<Vec<Value>> = None;
@@ -752,22 +734,6 @@ fn build_stage_input(
                     facts.clone()
                 };
                 inp["args"]["facts"] = json!(f_filtered);
-                // 합의 루프 히스토리 채널 — audit 라운드에 이미 뺀(x) fact 를 사유와 함께 실어, 다음 라운드가
-                // 되돌려 넣지(re-add) 않게 한다(진동 차단). o-필터된 facts 엔 x 항목이 없으므로 별도 채널로.
-                if audit_stages.contains(stage_name) {
-                    let removed = facts
-                        .iter()
-                        .filter(|e| e.get("badge").and_then(|b| b.as_str()) == Some("x"))
-                        .map(|e| {
-                            json!({
-                                "id": e.get("id").cloned().unwrap_or(Value::Null),
-                                "title": e.get("title").cloned().unwrap_or(Value::Null),
-                                "reason": e.get("result").cloned().unwrap_or(Value::Null),
-                            })
-                        })
-                        .collect::<Vec<_>>();
-                    inp["args"]["removed"] = json!(removed);
-                }
             }
             Ok(inp.to_string())
         };
@@ -799,12 +765,12 @@ fn build_stage_input(
 }
 
 /// 스테이지 → 섹션 제목 — 프레임을 매달 chunk-밑 섹션. research→Research, design 체인 3스테이지→Design(공유),
-/// plan/plan-patch→Plan. Spec 은 apply_draft_doc 소관. 그 밖(generate/audit/body 등)은 섹션 없음.
+/// plan→Plan. Spec 은 apply_draft_doc 소관. 그 밖(generate/audit/body 등)은 섹션 없음.
 fn stage_section_title(stage: &str) -> Option<&'static str> {
     match stage {
         "research" => Some("Research"),
         "design-interface" | "design-domain" | "design-criteria" => Some("Design"),
-        "plan" | "plan-patch" => Some("Plan"),
+        "plan" => Some("Plan"),
         _ => None,
     }
 }
