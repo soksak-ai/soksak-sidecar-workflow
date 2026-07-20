@@ -45,6 +45,7 @@ struct FakeDeps {
     assemble_out: Option<Result<Value, String>>,
     stage_with_output_out: Option<Result<StageOut, String>>,
     edit_err_ids: std::collections::HashSet<String>,
+    proof_outcomes: Option<std::collections::HashMap<String, CmdOutcome>>,
     calls: RefCell<Calls>,
 }
 
@@ -64,8 +65,18 @@ impl FakeDeps {
             assemble_out: None,
             stage_with_output_out: None,
             edit_err_ids: std::collections::HashSet::new(),
+            proof_outcomes: None,
             calls: RefCell::new(Calls::default()),
         }
+    }
+    fn proof(mut self, outcomes: Vec<(&str, CmdOutcome)>) -> Self {
+        self.proof_outcomes = Some(
+            outcomes
+                .into_iter()
+                .map(|(c, o)| (c.to_string(), o))
+                .collect(),
+        );
+        self
     }
     fn exec(mut self, out: Value) -> Self {
         self.exec_out = Some(out);
@@ -177,6 +188,19 @@ impl Deps for FakeDeps {
         self.stage_with_output_out
             .clone()
             .unwrap_or_else(|| Err("execStageWithOutput 미배선".into()))
+    }
+    fn run_proof_command(&self, _cwd: &str, cmd: &str) -> Option<CmdOutcome> {
+        self.proof_outcomes
+            .as_ref()
+            .and_then(|m| m.get(cmd).cloned())
+    }
+}
+// exit 코드만 지정한 CmdOutcome 헬퍼.
+fn outc(code: i64) -> CmdOutcome {
+    CmdOutcome {
+        exit_code: Some(code),
+        stdout: String::new(),
+        stderr: String::new(),
     }
 }
 fn nodes(vs: Vec<Value>) -> Vec<Node> {
@@ -1663,6 +1687,185 @@ fn export_tick_path_escape_rejected() {
         assert_eq!(r["ok"], false, "{bad}");
         assert_eq!(r["code"], "INVALID_INPUT", "{bad}");
     }
+}
+
+// ── PROOF: parse_proof ──────────────────────────────────────────────────────
+#[test]
+fn parse_proof_extracts_commands_and_pass_condition() {
+    let desc = "export const a = 1;\n\n---- PROOF ----\ncommands: [\"tsc\",\"npm test\"]\npass_condition: exit 0\nimplements: [\"i1\"]";
+    let pb = parse_proof(desc).expect("PROOF 블록");
+    assert_eq!(pb.commands, vec!["tsc", "npm test"]);
+    assert_eq!(pb.pass_condition, "exit 0");
+}
+
+#[test]
+fn parse_proof_none_without_marker() {
+    assert!(parse_proof("just code, no proof block").is_none());
+}
+
+#[test]
+fn parse_proof_empty_commands_when_default_array() {
+    let pb = parse_proof("code\n\n---- PROOF ----\ncommands: []\npass_condition: ").expect("블록");
+    assert!(pb.commands.is_empty());
+    assert_eq!(pb.pass_condition, "");
+}
+
+#[test]
+fn parse_proof_survives_code_containing_marker_word() {
+    // 코드 본문에 "commands" 라는 낱말이 있어도 마커 뒤에서만 읽는다.
+    let desc = "// commands here are fake\ncode\n\n---- PROOF ----\ncommands: [\"cargo test\"]\npass_condition: all tests pass";
+    let pb = parse_proof(desc).expect("블록");
+    assert_eq!(pb.commands, vec!["cargo test"]);
+    assert_eq!(pb.pass_condition, "all tests pass");
+}
+
+// ── PROOF: evaluate_pass_condition ──────────────────────────────────────────
+#[test]
+fn evaluate_default_all_exit_zero_pass() {
+    let v = evaluate_pass_condition("all tests pass", &[outc(0), outc(0)]);
+    assert!(v.pass);
+}
+
+#[test]
+fn evaluate_default_any_nonzero_fail() {
+    let v = evaluate_pass_condition("all tests pass", &[outc(0), outc(1)]);
+    assert!(!v.pass);
+}
+
+#[test]
+fn evaluate_explicit_exit_zero() {
+    assert!(evaluate_pass_condition("exit 0", &[outc(0)]).pass);
+    assert!(!evaluate_pass_condition("exit code 0", &[outc(2)]).pass);
+}
+
+#[test]
+fn evaluate_explicit_nonzero_exit_matches_last() {
+    // 실패를 증명하는 PROOF — 마지막 명령이 그 코드로 끝나야 pass.
+    assert!(evaluate_pass_condition("exit 1", &[outc(0), outc(1)]).pass);
+    assert!(!evaluate_pass_condition("exit 1", &[outc(0), outc(0)]).pass);
+}
+
+#[test]
+fn evaluate_contains_directive_checks_output() {
+    let ok = CmdOutcome {
+        exit_code: Some(0),
+        stdout: "3 tests passed".to_string(),
+        stderr: String::new(),
+    };
+    // 대소문자 무시 부분 문자열 — "passed" 는 있고 "compilation error" 는 없다.
+    assert!(evaluate_pass_condition("output contains \"PASSED\"", &[ok.clone()]).pass);
+    assert!(!evaluate_pass_condition("output contains \"compilation error\"", &[ok]).pass);
+}
+
+#[test]
+fn evaluate_no_exit_code_is_fail() {
+    let timed_out = CmdOutcome {
+        exit_code: None,
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+    assert!(!evaluate_pass_condition("exit 0", &[timed_out]).pass);
+}
+
+#[test]
+fn evaluate_empty_outcomes_is_fail() {
+    assert!(!evaluate_pass_condition("exit 0", &[]).pass);
+}
+
+// ── PROOF: proof_edit_fields ────────────────────────────────────────────────
+#[test]
+fn proof_edit_fields_writes_proof_axis_not_badge() {
+    // 실행 축은 정적 badge 축을 건드리지 않는다 — `proof` 필드에만 쓴다.
+    let f = proof_edit_fields("pass", "기대 exit 0", &["cargo test".to_string()]);
+    assert_eq!(f["proof"]["status"], "pass");
+    assert_eq!(f["proof"]["reason"], "기대 exit 0");
+    assert_eq!(f["proof"]["commands"], json!(["cargo test"]));
+    assert!(f.get("badge").is_none(), "badge 축은 건드리지 않는다");
+}
+
+// ── PROOF: proof_tick ───────────────────────────────────────────────────────
+fn proof_desc(commands: &str, pass: &str) -> String {
+    format!("code body\n\n---- PROOF ----\ncommands: {commands}\npass_condition: {pass}")
+}
+
+#[test]
+fn proof_tick_no_code_gate() {
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+    ]);
+    let r = proof_tick(&FakeDeps::new(ns), "chunk", "/tmp/out");
+    assert_eq!(r["ok"], false);
+    assert!(r["message"].as_str().unwrap().contains("code 노드 없음"));
+}
+
+#[test]
+fn proof_tick_pending_code_gate() {
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+        json!({ "id": "c1", "kind": "code", "parentId": "chunk", "title": "a.rs", "badge": "검수전", "description": "x" }),
+    ]);
+    let r = proof_tick(&FakeDeps::new(ns), "chunk", "/tmp/out");
+    assert_eq!(r["ok"], false);
+    assert_eq!(r["code"], "GATE_REQUIRED");
+}
+
+#[test]
+fn proof_tick_gated_when_runner_unwired() {
+    // 기본 FakeDeps 는 run_proof_command 미배선(None) — 아무 명령도 스폰하지 않고 gated 로 기록.
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+        json!({ "id": "c1", "kind": "code", "parentId": "chunk", "title": "a.rs", "badge": "o", "description": proof_desc("[\"cargo test\"]", "exit 0") }),
+    ]);
+    let d = FakeDeps::new(ns);
+    let r = proof_tick(&d, "chunk", "/tmp/out");
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["gated"], 1);
+    assert_eq!(r["passed"], 0);
+    let edit = d.c().edit_of("c1").cloned().expect("c1 edit");
+    assert_eq!(edit["proof"]["status"], "gated");
+}
+
+#[test]
+fn proof_tick_runs_and_records_pass() {
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+        json!({ "id": "c1", "kind": "code", "parentId": "chunk", "title": "a.rs", "badge": "o", "description": proof_desc("[\"cargo test\"]", "exit 0") }),
+    ]);
+    let d = FakeDeps::new(ns).proof(vec![("cargo test", outc(0))]);
+    let r = proof_tick(&d, "chunk", "/tmp/out");
+    assert_eq!(r["passed"], 1);
+    assert_eq!(r["failed"], 0);
+    assert_eq!(r["results"][0]["status"], "pass");
+    assert_eq!(d.c().edit_of("c1").unwrap()["proof"]["status"], "pass");
+}
+
+#[test]
+fn proof_tick_runs_and_records_fail() {
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+        json!({ "id": "c1", "kind": "code", "parentId": "chunk", "title": "a.rs", "badge": "o", "description": proof_desc("[\"cargo test\"]", "exit 0") }),
+    ]);
+    let d = FakeDeps::new(ns).proof(vec![("cargo test", outc(1))]);
+    let r = proof_tick(&d, "chunk", "/tmp/out");
+    assert_eq!(r["failed"], 1);
+    assert_eq!(r["results"][0]["status"], "fail");
+    assert_eq!(d.c().edit_of("c1").unwrap()["proof"]["status"], "fail");
+}
+
+#[test]
+fn proof_tick_only_o_codes_and_no_proof_recorded() {
+    // x 확정 code 는 제외; PROOF 블록 없는 o code 는 no-proof.
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "badge": "o" }),
+        json!({ "id": "c1", "kind": "code", "parentId": "chunk", "title": "a.rs", "badge": "o", "description": "코드만, PROOF 없음" }),
+        json!({ "id": "c2", "kind": "code", "parentId": "chunk", "title": "b.rs", "badge": "x", "description": proof_desc("[\"cargo test\"]", "exit 0") }),
+    ]);
+    let d = FakeDeps::new(ns).proof(vec![("cargo test", outc(0))]);
+    let r = proof_tick(&d, "chunk", "/tmp/out");
+    assert_eq!(r["results"].as_array().unwrap().len(), 1, "o code 만 대상");
+    assert_eq!(r["results"][0]["node"], "c1");
+    assert_eq!(r["results"][0]["status"], "no-proof");
+    assert!(d.c().edit_of("c2").is_none(), "x code 는 실행 대상 아님");
 }
 
 // ── issuerizeTick (chunk 4) ─────────────────────────────────────────────────

@@ -18,9 +18,9 @@ use crate::lang::Language;
 use crate::provider::{run_agent, run_agent_text, AgentRequest};
 use crate::reconcile::draft::register_prompt_templates;
 use crate::reconcile::{
-    build_add_params, build_ledger, export_tick, issuerize_tick, next_tick, reconcile_tick,
-    research_gate, resolve_directive, submit_tick, Deps, EditResult, Node, ReconcileState,
-    StageOut,
+    build_add_params, build_ledger, export_tick, issuerize_tick, next_tick, proof_tick,
+    reconcile_tick, research_gate, resolve_directive, submit_tick, CmdOutcome, Deps, EditResult,
+    Node, ReconcileState, StageOut,
 };
 
 const DEFAULT_MODEL: &str = "opus";
@@ -412,7 +412,88 @@ impl Deps for ProdDeps<'_> {
         }
         let _ = std::fs::write(rel, content);
     }
+    fn run_proof_command(&self, cwd: &str, cmd: &str) -> Option<CmdOutcome> {
+        run_proof_command_guarded(cwd, cmd)
+    }
 }
+
+/// PROOF 실행 활성 여부 — 임의 명령 실행은 안전/샌드박스 문제(COMPLETION.md 가 유예)이므로 기본 오프.
+/// 명시 활성화(SOKSAK_PROOF_EXEC=1|true|yes)에서만 스폰한다.
+fn proof_exec_enabled() -> bool {
+    matches!(
+        std::env::var("SOKSAK_PROOF_EXEC").ok().as_deref(),
+        Some("1") | Some("true") | Some("yes")
+    )
+}
+
+/// PROOF 명령 하나를 cwd 에서 실행 — 가드: 활성화 + cwd 가 실디렉토리일 때만. 아니면 None(게이트).
+/// provider.rs 의 spawn 패턴(sh -lc + native wait_timeout 하드캡)을 따른다 — 외부 timeout 바이너리 없음.
+fn run_proof_command_guarded(cwd: &str, cmd: &str) -> Option<CmdOutcome> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    if !proof_exec_enabled() || !std::path::Path::new(cwd).is_dir() {
+        return None;
+    }
+    let mut child = Command::new("/bin/sh")
+        .args(["-lc", cmd])
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    // 파이프는 각각 리더 스레드로 EOF 까지 비운다 — 한쪽만 읽으면 다른 파이프 버퍼(64KB)가 차서
+    // 자식이 블록하고 wait 이 영원히 안 끝나는 클래식 데드락이 난다.
+    let read_pipe = |pipe: Option<std::process::ChildStdout>| {
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_string(&mut s);
+            }
+            s
+        })
+    };
+    let out_h = read_pipe(child.stdout.take());
+    let err_pipe = child.stderr.take();
+    let err_h = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(mut p) = err_pipe {
+            let _ = p.read_to_string(&mut s);
+        }
+        s
+    });
+    use wait_timeout::ChildExt;
+    let status = child
+        .wait_timeout(std::time::Duration::from_secs(PROOF_TIMEOUT_SECS))
+        .ok()?;
+    if status.is_none() {
+        // 하드캡 도달 — kill 후 reap(리더는 stdout/stderr EOF 로 자연 종료).
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let out = out_h.join().unwrap_or_default();
+    let mut err = err_h.join().unwrap_or_default();
+    match status {
+        Some(st) => Some(CmdOutcome {
+            exit_code: st.code().map(i64::from),
+            stdout: out,
+            stderr: err,
+        }),
+        None => {
+            err.push_str(&format!(
+                "\n[proof 타임아웃 {PROOF_TIMEOUT_SECS}s — 강제 종료]"
+            ));
+            Some(CmdOutcome {
+                exit_code: None,
+                stdout: out,
+                stderr: err,
+            })
+        }
+    }
+}
+
+/// PROOF 명령 하드캡(초) — hung 방지.
+const PROOF_TIMEOUT_SECS: u64 = 300;
 
 // 초기 DAG 발행 — doc emit → NodeEvent → board relay. LLM 0.
 fn publish_doc(
@@ -550,7 +631,7 @@ fn validate_request(op: &str, params: &Value) -> Result<(), Outcome> {
             required_string("chunk")?;
             Ok(())
         }
-        "export" => {
+        "export" | "proof" => {
             required_string("chunk")?;
             required_string("dir")?;
             Ok(())
@@ -662,6 +743,14 @@ impl ServiceHandler for WorkflowService {
                         };
                         ok_outcome(export_tick(&deps_dir, chunk, dir))
                     }
+                    _ => Outcome::err(ErrCode::InvalidParams, "chunk·dir 필수"),
+                }
+            }
+            "proof" => {
+                let chunk = params.get("chunk").and_then(|c| c.as_str());
+                let dir = params.get("dir").and_then(|d| d.as_str());
+                match (chunk, dir) {
+                    (Some(chunk), Some(dir)) => ok_outcome(proof_tick(&deps, chunk, dir)),
                     _ => Outcome::err(ErrCode::InvalidParams, "chunk·dir 필수"),
                 }
             }

@@ -20,7 +20,7 @@ fn fresh_process_declares_owned_sidecar_interface() {
             "unit": { "kind": "sidecar", "id": "soksak-sidecar-workflow", "version": "0.0.1" },
             "interface": { "id": "soksak-spec-sidecar-workflow", "version": "0.0.1" },
             "transport": "stdio-json-lines",
-            "ops": ["run", "ping", "reconcile", "research", "next", "submit", "issuerize", "export"]
+            "ops": ["run", "ping", "reconcile", "research", "next", "submit", "issuerize", "export", "proof"]
         })
     );
 }

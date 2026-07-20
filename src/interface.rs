@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 pub const UNIT_ID: &str = "soksak-sidecar-workflow";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const INTERFACE_ID: &str = "soksak-spec-sidecar-workflow";
-pub const SERVICE_OPS: [&str; 8] = [
+pub const SERVICE_OPS: [&str; 9] = [
     "run",
     "ping",
     "reconcile",
@@ -12,6 +12,7 @@ pub const SERVICE_OPS: [&str; 8] = [
     "submit",
     "issuerize",
     "export",
+    "proof",
 ];
 
 pub fn handshake() -> Value {

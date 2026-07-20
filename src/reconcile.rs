@@ -141,6 +141,35 @@ pub trait Deps {
 
     // export — 파일 쓰기.
     fn write_file(&self, _rel: &str, _content: &str) {}
+
+    // PROOF 실행 seam — cwd(export 로 쓴 작업 트리)에서 명령 하나를 돌려 결과를 돌려준다.
+    // 기본 None = 미배선/게이트 오프(임의 명령 실행은 안전 문제이므로 켜지 않는 한 아무것도 스폰하지 않는다).
+    // production 은 명시 활성화 + 실디렉토리에서만 Some 을 돌려준다. 테스트는 canned 결과를 주입한다.
+    fn run_proof_command(&self, _cwd: &str, _cmd: &str) -> Option<CmdOutcome> {
+        None
+    }
+}
+
+/// PROOF 명령 한 개의 실행 결과 — exit_code None 은 타임아웃/스폰 실패(정상 종료 코드 없음).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CmdOutcome {
+    pub exit_code: Option<i64>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// code 노드 description 에서 잘라낸 PROOF 블록 — commands(실행할 명령들)와 pass_condition(통과 조건).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofBlock {
+    pub commands: Vec<String>,
+    pub pass_condition: String,
+}
+
+/// PROOF 실행 판정 — pass 여부와 사유.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofVerdict {
+    pub pass: bool,
+    pub reason: String,
 }
 
 /// 활성 프로세스 수명 동안 유지하는 상태. 재시작 시 리셋할 수 있다.
@@ -1655,6 +1684,189 @@ pub fn export_tick(deps: &dyn Deps, chunk_id: &str, dir: &str) -> Value {
         files.push(rel);
     }
     json!({ "ok": true, "files": files, "dir": dir })
+}
+
+/// code 노드 description 에서 PROOF 블록을 잘라낸다 — "---- PROOF ----" 마커 없으면 None.
+/// commands 는 마커 뒤 "commands:" 줄의 JSON 배열, pass_condition 은 "pass_condition:" 줄의 나머지.
+/// export 가 파일에 안 쓰는 그 블록을 여기선 실행 계약으로 읽는다(정적 body-verify 와 대비되는 실행 축).
+pub fn parse_proof(description: &str) -> Option<ProofBlock> {
+    let tail = description.split("---- PROOF ----").nth(1)?;
+    let mut commands: Vec<String> = Vec::new();
+    let mut pass_condition = String::new();
+    for line in tail.lines() {
+        let l = line.trim_start();
+        if let Some(rest) = l.strip_prefix("commands:") {
+            commands = serde_json::from_str::<Vec<String>>(rest.trim()).unwrap_or_default();
+        } else if let Some(rest) = l.strip_prefix("pass_condition:") {
+            pass_condition = rest.trim().to_string();
+        }
+    }
+    Some(ProofBlock {
+        commands,
+        pass_condition,
+    })
+}
+
+/// pass_condition 에 명시된 기대 종료 코드 추출 — "exit" 뒤 첫 정수. 없으면 None.
+fn expected_exit_code(pass_condition: &str) -> Option<i64> {
+    let lower = pass_condition.to_lowercase();
+    let idx = lower.find("exit")?;
+    let rest: Vec<char> = lower[idx + 4..].chars().collect();
+    let mut i = 0;
+    while i < rest.len() {
+        let neg = rest[i] == '-' && i + 1 < rest.len() && rest[i + 1].is_ascii_digit();
+        if rest[i].is_ascii_digit() || neg {
+            let start = i;
+            if neg {
+                i += 1;
+            }
+            while i < rest.len() && rest[i].is_ascii_digit() {
+                i += 1;
+            }
+            return rest[start..i].iter().collect::<String>().parse().ok();
+        }
+        i += 1;
+    }
+    None
+}
+
+/// pass_condition 에서 출력 포함 검사 대상 문자열 추출 — contains/includes/prints/output 뒤 텍스트.
+fn contains_target(pass_condition: &str) -> Option<String> {
+    let lower = pass_condition.to_lowercase();
+    for kw in ["contains", "includes", "prints", "output"] {
+        if let Some(i) = lower.find(kw) {
+            let after = lower[i + kw.len()..].trim_start_matches([':', ' ', '\t']);
+            let t = after.trim().trim_matches(['"', '\'', '`']);
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// 명령 실행 결과들을 pass_condition 으로 판정 — exit 코드 명시 > 출력 포함 > 기본(전부 exit 0).
+/// 순수: 실제 스폰과 분리해 결정적으로 테스트한다.
+pub fn evaluate_pass_condition(pass_condition: &str, outcomes: &[CmdOutcome]) -> ProofVerdict {
+    if outcomes.is_empty() {
+        return ProofVerdict {
+            pass: false,
+            reason: "실행된 명령 없음".to_string(),
+        };
+    }
+    if outcomes.iter().any(|o| o.exit_code.is_none()) {
+        return ProofVerdict {
+            pass: false,
+            reason: "명령이 종료 코드 없이 끝남(타임아웃/스폰 실패)".to_string(),
+        };
+    }
+    let all_zero = || outcomes.iter().all(|o| o.exit_code == Some(0));
+    if let Some(want) = expected_exit_code(pass_condition) {
+        let last = outcomes.last().and_then(|o| o.exit_code);
+        let pass = if want == 0 {
+            all_zero()
+        } else {
+            last == Some(want)
+        };
+        return ProofVerdict {
+            pass,
+            reason: format!("기대 exit {want}, 실제 last exit {last:?}"),
+        };
+    }
+    if let Some(target) = contains_target(pass_condition) {
+        let combined = outcomes
+            .iter()
+            .map(|o| format!("{}{}", o.stdout, o.stderr))
+            .collect::<String>()
+            .to_lowercase();
+        let pass = combined.contains(&target);
+        return ProofVerdict {
+            pass,
+            reason: format!("출력 포함 검사 {target:?} → {pass}"),
+        };
+    }
+    ProofVerdict {
+        pass: all_zero(),
+        reason: "기본 판정: 모든 명령 exit 0".to_string(),
+    }
+}
+
+/// PROOF 판정을 code 노드에 기록할 edit 필드 조립 — 실행 축은 정적 badge 축과 분리된 `proof` 필드에 쓴다.
+/// status: pass|fail|gated|no-proof. 순수: emit 없이 와이어 shape 를 검증한다.
+pub fn proof_edit_fields(status: &str, reason: &str, commands: &[String]) -> Value {
+    json!({ "proof": { "status": status, "reason": reason, "commands": commands } })
+}
+
+/// 확정 code 노드의 PROOF 를 export 트리(dir)에서 실행해 실행 축 판정을 기록한다.
+/// 게이트: code≥1·전부 확정(export 와 동형). o 확정 code 만 대상. run_proof_command 미배선이면 status=gated.
+pub fn proof_tick(deps: &dyn Deps, chunk_id: &str, dir: &str) -> Value {
+    let nodes = deps.list_nodes();
+    let by_id: HashMap<String, &Node> = nodes.iter().map(|n| (n.id.clone(), n)).collect();
+    let codes: Vec<&Node> = nodes
+        .iter()
+        .filter(|n| n.kind.as_deref() == Some("code") && descends(&by_id, n, chunk_id))
+        .collect();
+    if codes.is_empty() {
+        return json!({ "ok": false, "code": "GATE_REQUIRED", "message": "확정할 code 노드 없음 — issuerize→실코드화·export 후에 proof" });
+    }
+    let pending = codes
+        .iter()
+        .filter(|n| !matches!(n.badge_str(), "o" | "x" | "f"))
+        .count();
+    if pending > 0 {
+        return json!({ "ok": false, "code": "GATE_REQUIRED", "message": format!("미확정 code {pending}건(검수전) — 검증 완료 후 proof") });
+    }
+    let mut results: Vec<Value> = Vec::new();
+    let (mut passed, mut failed, mut gated) = (0u32, 0u32, 0u32);
+    for c in codes.iter().filter(|n| n.badge_str() == "o") {
+        let file = c.title.clone().unwrap_or_default();
+        let node = deps.get_node(&c.id).unwrap_or_default();
+        let desc = node
+            .description
+            .clone()
+            .or_else(|| c.description.clone())
+            .unwrap_or_default();
+        let block = parse_proof(&desc);
+        let (status, reason, cmds): (&str, String, Vec<String>) = match block {
+            None => ("no-proof", "PROOF 블록 없음".to_string(), Vec::new()),
+            Some(pb) if pb.commands.is_empty() => {
+                ("no-proof", "PROOF 명령 없음".to_string(), pb.commands)
+            }
+            Some(pb) => {
+                let mut outcomes: Vec<CmdOutcome> = Vec::new();
+                let mut is_gated = false;
+                for cmd in &pb.commands {
+                    match deps.run_proof_command(dir, cmd) {
+                        Some(o) => outcomes.push(o),
+                        None => {
+                            is_gated = true;
+                            break;
+                        }
+                    }
+                }
+                if is_gated {
+                    (
+                        "gated",
+                        "PROOF 실행 미활성(임의 명령 실행 게이트 오프) — 활성화·실디렉토리에서만 실행"
+                            .to_string(),
+                        pb.commands,
+                    )
+                } else {
+                    let v = evaluate_pass_condition(&pb.pass_condition, &outcomes);
+                    (if v.pass { "pass" } else { "fail" }, v.reason, pb.commands)
+                }
+            }
+        };
+        match status {
+            "pass" => passed += 1,
+            "fail" => failed += 1,
+            _ => gated += 1,
+        }
+        deps.edit_node(&c.id, proof_edit_fields(status, &reason, &cmds));
+        results.push(json!({ "node": c.id, "file": file, "status": status, "reason": reason }));
+    }
+    deps.poke();
+    json!({ "ok": true, "chunk": chunk_id, "dir": dir, "passed": passed, "failed": failed, "gated": gated, "results": results })
 }
 
 /// 이슈라이즈 — 인증 덩어리의 plan-unit(o)을 파일별 실코드화 body task로 승격.
