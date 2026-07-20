@@ -664,15 +664,59 @@ fn apply_draft_doc_emits_routing_tier_on_item() {
     });
     let d = FakeDeps::new(vec![]);
     let n = crate::reconcile::draft::apply_draft_doc(&d, &doc, Some("chunk-k"), None).unwrap();
-    assert_eq!(n, 2, "요건 2개 발행");
+    assert_eq!(n, 2, "요건 2개 발행(Spec 섹션은 계수 밖)");
     let add = &d.c().add;
-    assert_eq!(add[0]["effort"], "max", "tier 실은 요건 → item 노드 effort");
-    assert_eq!(add[0]["model"], "gpt-5.6-sol");
+    // add[0] = Spec 섹션, add[1..] = 요건 프레임(Spec 섹션 밑).
+    assert_eq!(add[1]["effort"], "max", "tier 실은 요건 → item 노드 effort");
+    assert_eq!(add[1]["model"], "gpt-5.6-sol");
     assert!(
-        add[1].get("effort").is_none(),
+        add[2].get("effort").is_none(),
         "미지정 요건 = item 노드 effort 없음(기본 최고 보존)"
     );
-    assert!(add[1].get("model").is_none());
+    assert!(add[2].get("model").is_none());
+}
+
+#[test]
+fn apply_draft_doc_nests_requirements_under_spec_section() {
+    // 보드 모델 — 요건 프레임은 chunk 직속이 아니라 chunk 밑 "Spec" 섹션(collapsed) 밑에 locked 로 붙는다.
+    // Spec 섹션은 검수전 item 처럼 보이면 안 됨(badge 없음 + item 아닌 kind) → pick_ready 가 실행/검증 대상으로 안 잡는다.
+    let doc = json!({
+        "kind": "draft-chunk", "chunk_ref": "chunk",
+        "verify_contract": { "template": "T {{title}}", "directive": "D", "schema": { "type": "object" }, "initial_badge": "검수전" },
+        "requirements": [
+            { "id": "i0", "title": "auth 경계", "description": "d", "origin": "agent", "badge": "검수전" },
+            { "id": "i1", "title": "날짜 포맷", "description": "d", "origin": "user", "badge": "검수전" }
+        ],
+        "tasks": []
+    });
+    let d = FakeDeps::new(vec![]);
+    crate::reconcile::draft::apply_draft_doc(&d, &doc, Some("chunk-k"), None).unwrap();
+    let add = &d.c().add;
+    // (a) 첫 발행 = Spec 섹션(chunk 직속, locked, 섹션 kind, badge 없음).
+    let spec = &add[0];
+    assert_eq!(spec["parentId"], "chunk-k", "Spec 섹션은 chunk 직속");
+    assert_eq!(spec["locked"], true, "Spec 섹션 locked");
+    assert_eq!(
+        spec["kind"], "section",
+        "섹션 kind — item/task 아님(pick_ready 제외)"
+    );
+    assert!(
+        spec.get("badge").is_none(),
+        "Spec 섹션은 badge 없음(검수전 item 아님)"
+    );
+    // (c) collapse 는 자식을 숨기는 것 → leaf 프레임이 아니라 Spec 섹션에 실린다(프레임 기본 접힘).
+    assert_eq!(spec["collapsed"], true, "Spec 섹션 collapsed");
+    // (b) 요건 프레임 parentId = Spec 섹션 id(chunk 직속 아님). FakeDeps: 첫 add → "k-1".
+    assert_eq!(add[1]["parentId"], "k-1", "요건 프레임은 Spec 섹션 밑");
+    assert_eq!(add[2]["parentId"], "k-1");
+    assert!(
+        add[1].get("collapsed").is_none(),
+        "leaf 프레임엔 collapsed 없음"
+    );
+    // 프레임은 여전히 item + 검수전 + locked(부모만 바뀜, id·badge 불변 → blockedBy 유효).
+    assert_eq!(add[1]["kind"], "item");
+    assert_eq!(add[1]["badge"], "검수전");
+    assert_eq!(add[1]["locked"], true);
 }
 
 #[test]

@@ -57,8 +57,30 @@ pub fn apply_draft_doc(
         .and_then(|v| v.as_str())
         .unwrap_or("검수전");
 
-    // requirements → item 노드(평탄: chunk 직속). 정규화 body = 해시 3개.
-    if let Some(reqs) = doc.get("requirements").and_then(|v| v.as_array()) {
+    // 보드 모델 — 요건 프레임은 chunk 직속이 아니라 chunk 밑 "Spec" 섹션 밑에 매단다.
+    // 섹션은 검수전 item 처럼 보이면 안 되므로 badge 없음 + kind=section(pick_ready 는 kind 로 게이트 →
+    // 실행/검증 대상 아님). add_node 가 돌려준 id 를 프레임 parentId 로 써야 하니 프레임 루프 전에 발행한다.
+    let reqs = doc.get("requirements").and_then(|v| v.as_array());
+    let spec_parent: Option<String> = match reqs {
+        Some(reqs) if !reqs.is_empty() => deps.add_node(json!({
+            "title": "Spec",
+            "parentId": chunk_kanban_id,
+            "body": "",
+            "blockedBy": [],
+            "locked": true,
+            "collapsed": true,
+            "type": "task",
+            "kind": "section",
+        })),
+        _ => None,
+    };
+    // 프레임 부모 — Spec 섹션 발행 성공 시 그 id, 폴백은 chunk 직속. descends() 는 부모 체인으로
+    // chunk 까지 올라가니 Spec-밑 프레임도 여전히 chunk 자손(원장/materialize 유지).
+    let frame_parent = spec_parent.as_deref().or(chunk_kanban_id);
+
+    // requirements → item 프레임(Spec 섹션 밑, locked). collapse 는 자식을 숨기는 것이라
+    // leaf 프레임이 아니라 섹션에 실린다(위 Spec 노드). 정규화 body = 해시 3개.
+    if let Some(reqs) = reqs {
         for r in reqs {
             let mut base = serde_json::Map::new();
             base.insert("promptHash".into(), json!(h_t));
@@ -73,7 +95,7 @@ pub fn apply_draft_doc(
                 "title".into(),
                 r.get("title").cloned().unwrap_or(Value::Null),
             );
-            params.insert("parentId".into(), json!(chunk_kanban_id));
+            params.insert("parentId".into(), json!(frame_parent));
             params.insert("body".into(), json!(Value::Object(base).to_string()));
             params.insert("blockedBy".into(), json!([]));
             params.insert("locked".into(), json!(true));
