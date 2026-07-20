@@ -1580,6 +1580,33 @@ fn issuerize_rework_on_rejected_code() {
         .contains("store 계약 위반"));
 }
 
+// ── issuerize: Draft done + 작업 task unlocked (보드 모델 — 두 축) ────────────
+#[test]
+fn issuerize_marks_chunk_done() {
+    // 게이트 통과(플랜 완결·fact/plan-unit 전부 확정) = Draft chunk 완료. badge 축(검증) 아닌 status 축(완료).
+    let d = FakeDeps::new(issuerize_nodes());
+    assert_eq!(issuerize_tick(&d, "chunk")["ok"], true);
+    assert_eq!(d.c().edit_of("chunk").unwrap()["status"], "done");
+}
+
+#[test]
+fn issuerize_work_task_unlocked() {
+    // 팬아웃 작업 task 는 스펙 프레임(locked)과 대비되는 분리·성장 가능한 정상 노드 — locked 금지.
+    let d = FakeDeps::new(issuerize_nodes());
+    issuerize_tick(&d, "chunk");
+    assert_eq!(d.c().add[0]["locked"], false);
+}
+
+#[test]
+fn issuerize_gate_fail_keeps_chunk_status() {
+    // 게이트 미통과(유닛 미검증) — 완결 전 Draft chunk done 이동 금지.
+    let mut ns = issuerize_nodes();
+    ns[4].badge = Some("검수전".into());
+    let d = FakeDeps::new(ns);
+    issuerize_tick(&d, "chunk");
+    assert!(d.c().edit_of("chunk").is_none());
+}
+
 // ── researchGate (chunk 4) ──────────────────────────────────────────────────
 fn gate_deps(nodes: Vec<Node>, bodies: Vec<(&str, &str)>) -> FakeDeps {
     let bmap: HashMap<String, String> = bodies

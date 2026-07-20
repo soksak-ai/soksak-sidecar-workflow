@@ -1414,6 +1414,11 @@ pub fn issuerize_tick(deps: &dyn Deps, chunk_id: &str) -> Value {
     if unverified_units > 0 {
         return json!({ "ok": false, "code": "GATE_REQUIRED", "message": format!("유닛 미검증 {unverified_units}건(검수전) — plan 검증 완료 후 이슈라이즈") });
     }
+    // 게이트 통과 = 플랜 완결(fact·plan-unit 전부 확정). 완성 스펙은 에픽 헤더가 되니 Draft chunk 를 done 으로.
+    // badge 축(검증) 아닌 status 축(완료) — chunk badge='o' 는 그대로. 이미 done 이면 재-edit 금지(멱등).
+    if chunk.status.as_deref() != Some("done") {
+        deps.edit_node(chunk_id, json!({ "status": "done" }));
+    }
     let directive = chunk.description.clone().unwrap_or_default();
     let pending: Vec<&Node> = units
         .iter()
@@ -1452,12 +1457,14 @@ pub fn issuerize_tick(deps: &dyn Deps, chunk_id: &str) -> Value {
             "args": { "title": u.title, "file_path": file, "pseudocode": pseudo, "chunkRef": chunk_id, "directive": directive },
         })
         .to_string();
+        // 팬아웃 작업 task 는 스펙 프레임(locked, 분리불가)과 대비되는 분리·성장 가능한 정상 노드 — unlocked.
+        // 부모 Draft chunk 도 unlocked 라 isLockedTree 주입 가드 통과. status 는 미설정(기본 todo, 개별 생애주기).
         let params = json!({
             "title": format!("실코드화: {}", if file.is_empty() { u.title.clone().unwrap_or_default() } else { file.clone() }),
             "parentId": chunk_id,
             "body": body,
             "blockedBy": [],
-            "locked": true,
+            "locked": false,
             "type": "task",
             "kind": "task",
         });
