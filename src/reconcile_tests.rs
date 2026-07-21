@@ -360,20 +360,47 @@ fn build_ledger_flat_descendants_items() {
 #[test]
 fn exec_result_to_edit_valid_oxf() {
     assert_eq!(
-        exec_result_to_edit(&json!({ "oxf": "o", "result": { "reason": "실재" } })),
+        exec_result_to_edit(&json!({ "oxf": "o", "result": { "reason": "실재" } }), None),
         json!({ "badge": "o", "result": json!({ "reason": "실재" }).to_string() })
     );
     assert_eq!(
-        exec_result_to_edit(&json!({ "oxf": "f", "result": "치명" })),
+        exec_result_to_edit(&json!({ "oxf": "f", "result": "치명" }), None),
         json!({ "badge": "f", "result": "치명" })
     );
 }
 
 #[test]
 fn exec_result_to_edit_no_oxf() {
-    let e = exec_result_to_edit(&json!({ "oxf": null, "result": { "items": [1, 2] } }));
+    let e = exec_result_to_edit(&json!({ "oxf": null, "result": { "items": [1, 2] } }), None);
     assert!(e.get("badge").is_none());
     assert_eq!(e["result"], json!({ "items": [1, 2] }).to_string());
+}
+
+// 합의 add-history clobber 회귀 — add 로 생성된 검수전 프레임 result 는 {reason,history}. 그 프레임이
+// per-item 검증되면 exec_result_to_edit 가 result 를 verdict 로 덮어썼다. 이제 history 를 보존·누적한다.
+#[test]
+fn exec_result_to_edit_preserves_consensus_history() {
+    // build_consensus_create 가 실은 result 형상 — add 결정 이력을 담는다.
+    let prior = json!({
+        "history": [{ "round": 1, "action": "add", "reason": "중심 엔티티 입력면" }]
+    })
+    .to_string();
+    let edit = exec_result_to_edit(
+        &json!({ "oxf": "o", "result": { "reason": "실재 확인" } }),
+        Some(&prior),
+    );
+    assert_eq!(edit["badge"], "o", "verdict badge 유지");
+    let result: serde_json::Value =
+        serde_json::from_str(edit["result"].as_str().unwrap()).expect("result 는 JSON");
+    let history = result["history"].as_array().expect("history 보존");
+    assert_eq!(history.len(), 2, "add 이력 + verify 누적: {history:?}");
+    assert_eq!(history[0]["action"], "add", "add 이력 소실 금지");
+    assert_eq!(history[1]["action"], "verify", "verdict 를 history 로 누적");
+    assert_eq!(history[1]["verdict"], "o");
+    assert_eq!(
+        result["reason"], "실재 확인",
+        "verdict reason 도 유지(issuerize)"
+    );
 }
 
 // ── buildAddParams ──────────────────────────────────────────────────────────

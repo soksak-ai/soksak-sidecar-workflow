@@ -845,8 +845,8 @@ mod tests {
                             "varRefs": { "directive": "directive" },
                             "registerPromptsOnce": { "verify": { "$": "values.VERIFY_TMPL" }, "directive": { "$": "args.directive" } } } }
                     ] },
-                    { "op": "publish", "node": { "id": "hunt", "kind": "task", "stage": "hunt", "parent": { "$": "args.chunkRef", "or": "chunk" },
-                        "title": "누락 탐색", "blockedBy": [ { "$": "itemIds" } ] } },
+                    { "op": "publish", "node": { "id": "draft-review", "kind": "task", "stage": "draft-review", "parent": { "$": "args.chunkRef", "or": "chunk" },
+                        "title": "완전성 합의 루프", "blockedBy": [ { "$": "itemIds" } ] } },
                     { "op": "return", "value": { "chunkTitle": { "$": "tree.title", "or": "" }, "titleOrigin": { "$": "tree.titleOrigin", "or": "agent" } } }
                 ],
                 "audit": [
@@ -1038,7 +1038,7 @@ mod tests {
             &mut agent,
         )
         .unwrap();
-        // 항목 2(빈 title 필터) + hunt task 1.
+        // 항목 2(빈 title 필터) + draft-review task 1.
         assert_eq!(events.len(), 3);
         let NodeEvent::Add {
             id,
@@ -1072,7 +1072,7 @@ mod tests {
         assert_eq!(id, "i2", "필터된 index 도 auto 에 반영(원본 순번 유지)");
         assert!(register_prompts.is_none(), "registerPromptsOnce 는 1회만");
         let NodeEvent::Add { id, blocked_by, .. } = &events[2];
-        assert_eq!(id, "hunt");
+        assert_eq!(id, "draft-review");
         assert_eq!(
             blocked_by,
             &vec!["i0".to_string(), "i2".to_string()],
@@ -1222,8 +1222,8 @@ mod tests {
             "directive 렌더"
         );
         assert!(!prompt_cap.contains("{{"), "미해석 마커 잔존 0");
-        // 이벤트: 항목 2 + hunt/classify/audit task 3.
-        assert_eq!(events.len(), 5);
+        // 이벤트: 항목 2 + draft-review 단일 task 1(hunt/classify/audit 3-task 트리는 Step 6 에서 제거).
+        assert_eq!(events.len(), 3);
         let NodeEvent::Add {
             id,
             kind,
@@ -1269,11 +1269,7 @@ mod tests {
             register_prompts, ..
         } = &events[1];
         assert!(register_prompts.is_none(), "registerPrompts 는 run 당 1회");
-        let expected_tasks = [
-            ("hunt", vec!["i0", "i1"]),
-            ("classify", vec!["i0", "i1", "hunt"]),
-            ("audit", vec!["i0", "i1", "hunt", "classify"]),
-        ];
+        let expected_tasks = [("draft-review", vec!["i0", "i1"])];
         for (idx, (tid, blocked)) in expected_tasks.iter().enumerate() {
             let NodeEvent::Add {
                 id,

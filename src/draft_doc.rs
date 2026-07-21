@@ -49,7 +49,7 @@ pub struct Requirement {
     pub model: Option<String>,
 }
 
-/// stage 작업(task 이벤트: hunt/classify/audit) — id + blockedBy(id 참조).
+/// stage 작업(task 이벤트: draft-review 합의 루프) — id + blockedBy(id 참조).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Task {
     pub id: String,
@@ -62,7 +62,7 @@ pub struct Task {
 /// - verify_contract: 첫 item 의 register_prompts{verify,directive}(+schema) → template/directive. schema 는
 ///   register_prompts.schema 우선, 없으면 첫 item 의 inline schema(폴백). initial_badge = 첫 item badge.
 /// - requirements: item 이벤트(고유 필드만; category 없음 — 분류는 classify stage 가 나중에).
-/// - tasks: task 이벤트(hunt/classify/audit; stage + blocked_by).
+/// - tasks: task 이벤트(draft-review 합의 루프; stage + blocked_by).
 /// - chunk_ref: 첫 item 의 parent(= 기존 덩어리 id). item 없으면 첫 task 의 parent, 그것도 없으면 "chunk".
 pub fn build(events: &[NodeEvent]) -> Result<DraftDoc, String> {
     let mut requirements: Vec<Requirement> = vec![];
@@ -331,7 +331,7 @@ mod tests {
             model: None,
         }
     }
-    /// task Add 이벤트(hunt/classify/audit).
+    /// task Add 이벤트(draft-review 합의 루프).
     fn task_ev(id: &str, parent: &str, stage: &str, blocked_by: &[&str]) -> NodeEvent {
         NodeEvent::Add {
             id: id.into(),
@@ -361,7 +361,8 @@ mod tests {
         json!({ "type": "object", "required": ["oxf", "origin"], "properties": { "oxf": { "type": "string" } } })
     }
 
-    /// 정상 generate 이벤트 스트림(평탄: item = CHUNK_REF 직속, register_prompts 는 첫 item, task 3개 hunt→classify→audit).
+    /// 정상 generate 이벤트 스트림(평탄: item = CHUNK_REF 직속, register_prompts 는 첫 item, task 1개
+    /// draft-review 합의 루프 — hunt/classify/audit 3-task 트리는 Step 6 에서 제거).
     fn good_events() -> Vec<NodeEvent> {
         let register = json!({ "verify": "VERIFY_TMPL {{title}} {{directive}}", "directive": "약국 SaaS 지시어", "schema": schema_json() });
         vec![
@@ -385,9 +386,7 @@ mod tests {
                 Some(schema_json()),
                 None,
             ),
-            task_ev("hunt", "chunk", "hunt", &["i0", "i1"]),
-            task_ev("classify", "chunk", "classify", &["i0", "i1", "hunt"]),
-            task_ev("audit", "chunk", "audit", &["i0", "i1", "hunt", "classify"]),
+            task_ev("draft-review", "chunk", "draft-review", &["i0", "i1"]),
         ]
     }
 
@@ -402,7 +401,7 @@ mod tests {
         assert_eq!(doc.requirements.len(), 2);
         assert_eq!(doc.requirements[0].id, "i0");
         assert_eq!(doc.requirements[0].origin, "user");
-        assert_eq!(doc.tasks.len(), 3, "hunt+classify+audit");
+        assert_eq!(doc.tasks.len(), 1, "draft-review 합의 루프 단일 task");
     }
 
     #[test]
@@ -689,7 +688,7 @@ mod tests {
     /// 이벤트 → build → validate 가 정규형 인증까지 통과하는지. LLM·앱 없이 결정적으로.
     ///
     /// fixture 는 **평탄 계약**(classify-late): generate 는 tree.requirements(평탄)를 CHUNK_REF 직속 item 으로
-    /// 발행 + hunt/classify/audit 3 task, register_prompts 는 첫 item 에.
+    /// 발행 + draft-review 단일 task(완전성 합의 루프), register_prompts 는 첫 item 에.
     #[test]
     fn build_and_validate_from_fixture_generate_events() {
         let wdoc: Json =
@@ -707,13 +706,13 @@ mod tests {
             crate::doc_exec::run(&wdoc, "generate", &args, &mut agent).expect("doc generate");
 
         let doc = build(&events).expect("build");
-        // 평탄: item 2개(CHUNK_REF 직속, category 없음), hunt+classify+audit 3 task.
+        // 평탄: item 2개(CHUNK_REF 직속, category 없음), draft-review 단일 task.
         assert_eq!(
             doc.requirements.len(),
             2,
             "평탄 요건 2개(그룹 없이 CHUNK_REF 직속)"
         );
-        assert_eq!(doc.tasks.len(), 3, "hunt+classify+audit");
+        assert_eq!(doc.tasks.len(), 1, "draft-review 합의 루프 단일 task");
         // verify_contract: register_prompts 를 첫 item 에 얹음 → template/directive 채워짐. schema 는 register 또는 item inline 폴백.
         assert!(
             doc.verify_contract.schema.is_object(),
@@ -727,7 +726,7 @@ mod tests {
             doc.verify_contract.directive, "테스트 지시",
             "directive 등록됨(첫 item)"
         );
-        // validate 통과 — 평탄 인증(hunt=전 요건, classify=전 요건∪{hunt}, audit=전 요건∪{hunt,classify} 트리).
+        // validate 통과 — 평탄 인증(draft-review 단일 task 가 전 요건을 blockedBy 로 게이트).
         assert_eq!(validate(&doc), Ok(()), "평탄 generate 산출 검증 통과");
     }
 }

@@ -358,13 +358,42 @@ fn chunk_progress_line(
 }
 
 /// exec-one {oxf,result} → node.edit 필드. oxf가 유효하면 badge를 갱신하고 result는 항상 기록한다.
-pub fn exec_result_to_edit(exec_out: &Value) -> Value {
+/// prior_result = 검증 직전 노드 result. 합의 add-history({reason,history}) 를 담은 프레임이면 history 를
+/// 읽어 verdict 항목(action=verify)을 append 한다 — verify verdict 가 add-history 를 덮어써 잃지 않게. 이력
+/// 없으면(평시 항목) 미보존: verdict result 를 그대로 쓴다(옛 동작 불변).
+pub fn exec_result_to_edit(exec_out: &Value, prior_result: Option<&str>) -> Value {
     let oxf = exec_out.get("oxf").and_then(|v| v.as_str());
     let raw = exec_out.get("result");
-    let result = match raw {
-        Some(Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-        None => "null".to_string(),
+    let prior_history: Option<Vec<Value>> = prior_result
+        .and_then(|r| serde_json::from_str::<Value>(r).ok())
+        .and_then(|v| v.get("history").and_then(|h| h.as_array()).cloned());
+    let result = match prior_history {
+        Some(mut history) => {
+            // verdict 를 history 에 누적(action=verify) — add→verify 를 거쳐도 이력이 이어진다.
+            let reason = match raw {
+                Some(Value::Object(o)) => o.get("reason").cloned().unwrap_or(Value::Null),
+                Some(Value::String(s)) => json!(s),
+                Some(v) => v.clone(),
+                None => Value::Null,
+            };
+            history.push(json!({ "action": "verify", "verdict": oxf, "reason": reason }));
+            // verdict 정보 유지 + history 보존 — 객체면 필드 유지(issuerize 가 reason 읽음), 아니면 reason 래핑.
+            let mut merged = match raw {
+                Some(Value::Object(o)) => Value::Object(o.clone()),
+                Some(Value::String(s)) => json!({ "reason": s }),
+                Some(v) => json!({ "reason": v.clone() }),
+                None => json!({}),
+            };
+            if let Some(obj) = merged.as_object_mut() {
+                obj.insert("history".into(), json!(history));
+            }
+            merged.to_string()
+        }
+        None => match raw {
+            Some(Value::String(s)) => s.clone(),
+            Some(v) => v.to_string(),
+            None => "null".to_string(),
+        },
     };
     match oxf {
         Some(o) if o == "o" || o == "x" || o == "f" => json!({ "badge": o, "result": result }),
@@ -1376,7 +1405,7 @@ pub fn reconcile_tick(deps: &dyn Deps, state: &mut ReconcileState, now_ms: u64) 
         }
     };
     state.fails.remove(&target.id);
-    let mut edit = exec_result_to_edit(&exec_out);
+    let mut edit = exec_result_to_edit(&exec_out, node.result.as_deref());
     let has_badge = edit.get("badge").is_some();
     if !has_badge {
         let n = state.no_verdict.get(&target.id).copied().unwrap_or(0) + 1;
