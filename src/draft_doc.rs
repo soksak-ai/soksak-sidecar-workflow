@@ -5,7 +5,7 @@
 //! **sha 는 넣지 않는다.** 공유값(template/directive/schema)은 verify_contract에 한 번 넣고,
 //! relay가 보드 계약의 prompt.put으로 콘텐츠 주소화한다.
 //! 여기 규칙 6(콘텐츠 주소 정합)은 담당하지 않는다 — 규칙 1~5,7 만.
-use crate::emit_host::NodeEvent;
+use crate::node_event::NodeEvent;
 use serde_json::Value as Json;
 
 /// DraftDoc — generate stage 의 id 기반 정규형. 요건은 고유 필드만, 공유값은 verify_contract 1회.
@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(back.chunk_title.as_deref(), Some("약국 재고 SaaS"));
     }
 
-    /// [통합] 실측 fixture doc(gen.pharmacy.doc.json)의 generate stage 를 doc_exec(stub agent)로 돌린
+    /// [통합] 실측 fixture doc(gen.pharmacy.doc.json)의 generate stage 를 doc_interp(stub agent)로 돌린
     /// 이벤트 → build → validate 가 정규형 인증까지 통과하는지. LLM·앱 없이 결정적으로.
     ///
     /// fixture 는 **평탄 계약**(classify-late): generate 는 tree.requirements(평탄)를 CHUNK_REF 직속 item 으로
@@ -703,7 +703,7 @@ mod tests {
         };
         let args = json!({ "stage": "generate", "directive": "테스트 지시", "chunkRef": "chunk" });
         let (events, _result) =
-            crate::doc_exec::run(&wdoc, "generate", &args, &mut agent).expect("doc generate");
+            crate::doc_interp::run(&wdoc, "generate", &args, &mut agent).expect("doc generate");
 
         let doc = build(&events).expect("build");
         // 평탄: item 2개(CHUNK_REF 직속, category 없음), draft-review 단일 task.

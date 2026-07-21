@@ -72,9 +72,9 @@ pub fn match_domains(idea: &str, lib: &DomainLibrary) -> Vec<String> {
     matched.into_iter().collect()
 }
 
-/// synth_directives — 매칭된 분야들의 지시어를 합성(id dedup, id 정렬). ③파생의 핵심.
+/// derive_directives — 매칭된 분야들의 지시어를 합성(id dedup, id 정렬). ③파생의 핵심.
 /// 결과 = 아이디어에 없던 도메인 지시어 목록 → 워크플로에 주입할 DIRECTIVE-* 재료.
-pub fn synth_directives(idea: &str, lib: &DomainLibrary) -> Vec<DomainDirective> {
+pub fn derive_directives(idea: &str, lib: &DomainLibrary) -> Vec<DomainDirective> {
     let hay = idea.to_lowercase();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut out: Vec<DomainDirective> = vec![];
@@ -133,7 +133,7 @@ mod tests {
         // 핵심 시나리오: 아이디어엔 "어드민 페이지"가 없지만 ③파생이 발라준다.
         let idea = "사용자 권한 관리 서비스를 만들고 싶다";
         let lib = demo_library();
-        let directives = synth_directives(idea, &lib);
+        let directives = derive_directives(idea, &lib);
         let ids: Vec<&str> = directives.iter().map(|d| d.id.as_str()).collect();
         // 권한(auth) + 서비스(webservice) 둘 다 매칭.
         assert!(
@@ -155,7 +155,7 @@ mod tests {
     fn no_match_yields_no_directives() {
         // 도메인 trigger 없는 아이디어 → 빈 결과(발라줄 것 없음).
         let lib = demo_library();
-        assert!(synth_directives("그냥 일기장 앱", &lib).is_empty());
+        assert!(derive_directives("그냥 일기장 앱", &lib).is_empty());
         assert!(match_domains("그냥 일기장 앱", &lib).is_empty());
     }
 
@@ -170,7 +170,7 @@ mod tests {
     fn directives_dedup_by_id_and_sorted() {
         // 같은 directive id 가 여러 trigger 로 매칭돼도 1회만.
         let idea = "permission 과 role 이 있는 서비스";
-        let directives = synth_directives(idea, &demo_library());
+        let directives = derive_directives(idea, &demo_library());
         let ids: Vec<&str> = directives.iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, vec!["auth-admin-pages", "web-auth-session"]); // dedup + id 정렬
     }
@@ -190,7 +190,7 @@ mod tests {
         }))
         .unwrap();
         let lib = DomainLibrary::from_json(&raw).unwrap();
-        let directives = synth_directives("결혼식 청첩장 사이트", &lib);
+        let directives = derive_directives("결혼식 청첩장 사이트", &lib);
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].id, "wedding-rsvp");
         assert_eq!(directives[0].domain, "wedding");

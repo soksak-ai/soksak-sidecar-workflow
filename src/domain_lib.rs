@@ -35,7 +35,7 @@ pub fn merged_library(extra: DomainLibrary) -> DomainLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derive_directive::{match_domains, synth_directives};
+    use crate::derive_directive::{derive_directives, match_domains};
 
     #[test]
     fn builtin_has_all_four_domains() {
@@ -51,7 +51,7 @@ mod tests {
     fn permission_idea_pulls_admin_directive() {
         // canonical: "권한 관리 서비스" → webservice 의 web-authz-admin(어드민 페이지).
         let lib = builtin_library();
-        let directives = synth_directives("사용자 권한 관리 서비스", &lib);
+        let directives = derive_directives("사용자 권한 관리 서비스", &lib);
         let ids: Vec<&str> = directives.iter().map(|d| d.id.as_str()).collect();
         assert!(
             ids.contains(&"web-authz-admin"),
@@ -83,7 +83,7 @@ mod tests {
         .unwrap();
         let lib = merged_library(extra);
         assert_eq!(lib.entries.len(), 5);
-        let d = synth_directives("멀티플레이 게임", &lib);
+        let d = derive_directives("멀티플레이 게임", &lib);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].id, "game-loop");
     }

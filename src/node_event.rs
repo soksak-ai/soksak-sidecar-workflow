@@ -1,6 +1,6 @@
-//! emit_host — 보드 노드 발행 이벤트(NodeEvent) wire 정본.
+//! node_event — 보드 노드 발행 이벤트(NodeEvent) wire 정본.
 //!
-//! doc_exec(publish op)가 이 이벤트를 생산하고, stdout JSON line → 서비스 relay → 보드 계약의
+//! doc_interp(publish op)가 이 이벤트를 생산하고, stdout JSON line → 서비스 relay → 보드 계약의
 //! node.add 로 흐른다. 실행 경로는 이 wire에만 의존한다.
 //!
 //! 규칙(rule_workflow_pipeline_node_model):

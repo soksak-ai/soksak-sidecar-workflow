@@ -1,7 +1,7 @@
 //! 워크플로 오케스트레이션의 틱 로직, 순수 헬퍼, Deps 경계.
 //!
 //! 상주 서비스가 상태와 커맨드 처리를 소유한다. Deps는 board/scheduler 중개 호출과
-//! in-process provider/doc_exec를 추상화한다. Emit.call이 동기이므로 Deps도 동기다.
+//! in-process provider/doc_interp를 추상화한다. Emit.call이 동기이므로 Deps도 동기다.
 //! 크로스 플러그인 읽기는 `{ok,data}` 봉투를 해석하고 ok:false는 None이다.
 
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,7 @@ pub trait Deps {
     /// 진행 델타(선택) — item 검증 중 무엇을 검증 중인지 흘린다. 기본 no-op.
     fn progress(&self, _cmd: &str, _delta: &str) {}
 
-    // exec seam — production=in-process provider/doc_exec. Err=throw(멱등: 노드 미변경).
+    // exec seam — production=in-process provider/doc_interp. Err=throw(멱등: 노드 미변경).
     fn exec_one(&self, body: &str) -> Result<Value, String>;
     fn exec_stage(&self, body: &str) -> Result<StageOut, String>;
 

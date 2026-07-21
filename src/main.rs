@@ -1,4 +1,4 @@
-//! soksak-sidecar-workflow — 워크플로 사이드카 CLI. **workflow-doc@0.0.1**(언어중립 JSON 문서, doc_exec) 단일 경로 — stage 별로
+//! soksak-sidecar-workflow — 워크플로 사이드카 CLI. **workflow-doc@0.0.1**(언어중립 JSON 문서, doc_interp) 단일 경로 — stage 별로
 //! 실행해 (a) 노드 DAG 를 *발행*(--emit)하거나 (b) stage/노드를 *실행*(exec-stage/exec-one)한다. agent 는
 //! claude -p. 실행 오케스트레이션은 코어 스케줄러가 맡고 이 런타임은 선언 문서만 실행한다.
 //!
@@ -10,13 +10,13 @@
 //! 인증 env(ANTHROPIC_*)는 호출자가 export.
 
 use serde_json::{json, Map, Value};
-use soksak_sidecar_workflow::derive_directive::synth_directives;
+use soksak_sidecar_workflow::author_doc::build_user_prompt;
+use soksak_sidecar_workflow::derive_directive::derive_directives;
 use soksak_sidecar_workflow::domain_lib::builtin_library;
 use soksak_sidecar_workflow::exec_one;
-use soksak_sidecar_workflow::generate_skeleton::build_user_prompt;
-use soksak_sidecar_workflow::host::build_prompt_with_schema;
 use soksak_sidecar_workflow::lang::Language;
 use soksak_sidecar_workflow::paths::bundled_workflow;
+use soksak_sidecar_workflow::prompt_assembly::build_prompt_with_schema;
 use soksak_sidecar_workflow::provider::{run_agent, run_agent_text, AgentRequest};
 use std::collections::HashSet;
 
@@ -96,7 +96,7 @@ fn real_main() -> Result<(), String> {
         if idea.is_empty() {
             return Err("synth: --idea 필수".to_string());
         }
-        let directives = synth_directives(&idea, &builtin_library());
+        let directives = derive_directives(&idea, &builtin_library());
         println!(
             "{}",
             serde_json::to_string_pretty(&directives).map_err(|e| e.to_string())?
@@ -115,7 +115,7 @@ fn real_main() -> Result<(), String> {
     }
 
     // exec-stage — stage 작업 실행(동적 발행). stdin {workflow|skeleton(doc), stage, args:{directive, chunkRef, ledger…}}
-    // → doc_exec 로 stage 실행(agent=claude, publish=NodeEvent) → 자식 {ev:add} JSON line + 최종 {ev:result}
+    // → doc_interp 로 stage 실행(agent=claude, publish=NodeEvent) → 자식 {ev:add} JSON line + 최종 {ev:result}
     // (generate 는 DraftDoc 1문서). 서비스 reconcile 이 kind=task 노드를 이 경로로 실행해 항목/fact 동적 발행.
     if argv[0] == "exec-stage" {
         return run_exec_stage(&argv);
@@ -190,7 +190,7 @@ fn real_main() -> Result<(), String> {
     let doc: Value =
         serde_json::from_slice(&raw).map_err(|e| format!("parse workflow-doc: {e}"))?;
     // 실행 입력은 선언된 workflow 문서 형식으로 닫혀 있다.
-    if !soksak_sidecar_workflow::doc_exec::is_doc(&doc) {
+    if !soksak_sidecar_workflow::doc_interp::is_doc(&doc) {
         return Err("workflow-doc@0.0.1 필요(spec 필드)".to_string());
     }
     if !emit {
@@ -216,7 +216,7 @@ fn real_main() -> Result<(), String> {
         Err("발행(--emit)은 agent 를 호출하지 않는다".to_string())
     };
     let (events, _result) =
-        soksak_sidecar_workflow::doc_exec::run(&doc, "", &args_json, &mut no_agent)?;
+        soksak_sidecar_workflow::doc_interp::run(&doc, "", &args_json, &mut no_agent)?;
     for ev in &events {
         if let Ok(s) = serde_json::to_string(ev) {
             println!("{s}");
@@ -405,7 +405,7 @@ fn run_exec_stage(argv: &[String]) -> Result<(), String> {
         let raw = bundled_workflow(name)?;
         let doc: Value =
             serde_json::from_str(raw).map_err(|e| format!("번들 워크플로 파싱 {name}: {e}"))?;
-        if !soksak_sidecar_workflow::doc_exec::is_doc(&doc) {
+        if !soksak_sidecar_workflow::doc_interp::is_doc(&doc) {
             return Err(format!("번들 워크플로 {name:?} 가 workflow-doc@0.0.1 아님"));
         }
         return run_exec_stage_doc(
@@ -422,7 +422,7 @@ fn run_exec_stage(argv: &[String]) -> Result<(), String> {
     // task body의 skeleton 슬롯도 동일한 workflow-doc 계약으로 검증한다.
     if let Some(doc) = input
         .get("skeleton")
-        .filter(|s| soksak_sidecar_workflow::doc_exec::is_doc(s))
+        .filter(|s| soksak_sidecar_workflow::doc_interp::is_doc(s))
         .cloned()
     {
         return run_exec_stage_doc(
@@ -473,7 +473,7 @@ fn run_exec_stage_doc(
             );
             Err("__ASSEMBLE_STOP__".into())
         };
-        match soksak_sidecar_workflow::doc_exec::run(
+        match soksak_sidecar_workflow::doc_interp::run(
             doc,
             stage,
             &{
@@ -530,7 +530,7 @@ fn run_exec_stage_doc(
         if let Some(l) = &lang {
             args_obj.insert("lang".to_string(), Value::String(l.code.clone()));
         }
-        let (events, result) = soksak_sidecar_workflow::doc_exec::run(
+        let (events, result) = soksak_sidecar_workflow::doc_interp::run(
             doc,
             stage,
             &Value::Object(args_obj),
@@ -582,7 +582,7 @@ fn run_exec_stage_doc(
             }
         };
     let (events, result) =
-        soksak_sidecar_workflow::doc_exec::run(doc, stage, &args_json, &mut agent_fn)?;
+        soksak_sidecar_workflow::doc_interp::run(doc, stage, &args_json, &mut agent_fn)?;
     emit_stage_output(stage, events, result)
 }
 
@@ -590,7 +590,7 @@ fn run_exec_stage_doc(
 /// generate 는 DraftDoc build+validate(위반=거부) 1문서, 그 외는 NodeEvent 라인들+result 라인.
 fn emit_stage_output(
     stage: &str,
-    events: Vec<soksak_sidecar_workflow::emit_host::NodeEvent>,
+    events: Vec<soksak_sidecar_workflow::node_event::NodeEvent>,
     result: Value,
 ) -> Result<(), String> {
     if stage == "generate" {
@@ -688,7 +688,7 @@ fn check_required_keys(schema: &Value, value: &Value) -> Result<(), String> {
 
 /// run_generate_skeleton — generate-skeleton 서브커맨드. 아이디어 → workflow-doc@0.0.1(LLM 저작) → doc JSON stdout.
 /// system=SKILL+api+patterns+draft-skill(바이너리 포함, --refs 로 override 가능), user=아이디어+③파생.
-/// 저작 게이트 = JSON 파싱(parse_json_lenient — 펜스/prose 방어) + doc_exec::validate(fail-loud).
+/// 저작 게이트 = JSON 파싱(parse_json_lenient — 펜스/prose 방어) + doc_interp::validate(fail-loud).
 fn run_generate_skeleton(argv: &[String]) -> Result<(), String> {
     let mut assemble = false; // --assemble: 정련 턴의 {prompt, schema} 패키지만(LLM 0)
     let mut with_refined: Option<Value> = None; // --with-refined: 외부 실행자의 정련 산출 주입(LLM 0)
@@ -747,7 +747,7 @@ fn run_generate_skeleton(argv: &[String]) -> Result<(), String> {
     // 스키마·프롬프트)는 번들 정본(workflows/draft.doc.json)을 도구가 조립한다. 19KB verbatim 재타이핑은
     // 문자 하나 누락으로 전체가 깨지는 취약 구조였다(실측: 18,911번째 문자 따옴표 누락).
     // ③파생 도메인 지시어 → user 프롬프트 힌트.
-    let directives = synth_directives(&idea, &builtin_library());
+    let directives = derive_directives(&idea, &builtin_library());
     let matched: Vec<&str> = directives
         .iter()
         .map(|d| d.domain.as_str())
@@ -800,12 +800,12 @@ fn run_generate_skeleton(argv: &[String]) -> Result<(), String> {
         if directive.is_empty() {
             return Err("--with-refined: directive 비어있음".into());
         }
-        let doc = soksak_sidecar_workflow::doc_exec::inject_refinement(
+        let doc = soksak_sidecar_workflow::doc_interp::inject_refinement(
             &template,
             &directive,
             &description,
         );
-        if let Err(violations) = soksak_sidecar_workflow::doc_exec::validate(&doc) {
+        if let Err(violations) = soksak_sidecar_workflow::doc_interp::validate(&doc) {
             return Err(format!(
                 "조립 doc 검증 실패({}건): {}",
                 violations.len(),
@@ -818,14 +818,14 @@ fn run_generate_skeleton(argv: &[String]) -> Result<(), String> {
         );
         return Ok(());
     }
-    // LLM 정련 실경로 = lib 단일진실(generate_skeleton::generate_doc). CLI 와 serve(wf_service) 가 같은
+    // LLM 정련 실경로 = lib 단일진실(author_doc::generate_doc). CLI 와 serve(wf_service) 가 같은
     // 함수를 부른다 — system=draft-skill.md, 골격 상수=번들 draft.doc.json 조립, 산출 {directive, description}
     // 소형 JSON(재타이핑 0), 정련 2회. assemble/with-refined(LLM 0)만 CLI 전용으로 위에서 처리했다.
     let (env, profile) = auth_env()?;
     eprintln!(
         "[soksak] generate-skeleton (model={model}, 프로필={profile}) → claude -p 정련(directive)"
     );
-    let doc = soksak_sidecar_workflow::generate_skeleton::generate_doc(
+    let doc = soksak_sidecar_workflow::author_doc::generate_doc(
         &idea,
         &model,
         lang.as_ref(),

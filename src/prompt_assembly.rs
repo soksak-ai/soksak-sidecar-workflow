@@ -1,4 +1,4 @@
-//! host — exec-one과 doc_exec가 공유하는 agent 프롬프트 조립.
+//! prompt_assembly — exec-one과 doc_interp가 공유하는 agent 프롬프트 조립.
 
 use crate::lang::Language;
 use serde_json::Value as Json;

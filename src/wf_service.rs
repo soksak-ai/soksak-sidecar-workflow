@@ -1,5 +1,5 @@
 //! workflow 상주 서비스 핸들러. 보드/스케줄러 호출은 Emit::call로 중개하고,
-//! exec는 provider/doc_exec를 프로세스 안에서 사용한다. 상태 변경은 서비스 하니스의 단일
+//! exec는 provider/doc_interp를 프로세스 안에서 사용한다. 상태 변경은 서비스 하니스의 단일
 //! 뮤텍스로 직렬화한다.
 //!
 //! 보드는 계약으로 발견한다(consumes) — 구현체 이름은 이 파일 어디에도 없다.
@@ -9,12 +9,12 @@ use soksak_spec_service::{serve_stdio, Emit, ErrCode, OpCtx, Outcome, ServiceHan
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::doc_exec;
+use crate::doc_interp;
 use crate::draft_doc;
-use crate::emit_host::NodeEvent;
 use crate::exec_one;
-use crate::host::build_prompt_with_schema;
 use crate::lang::Language;
+use crate::node_event::NodeEvent;
+use crate::prompt_assembly::build_prompt_with_schema;
 use crate::provider::{run_agent, run_agent_text, AgentRequest};
 use crate::reconcile::draft::register_prompt_templates;
 use crate::reconcile::{
@@ -190,7 +190,7 @@ fn exec_stage_inprocess(body: &str, mode: StageMode) -> Result<Value, String> {
                 );
                 Err("__assemble_capture__".to_string())
             };
-            let _ = doc_exec::run(&doc, &stage, &args_json, &mut cap_fn);
+            let _ = doc_interp::run(&doc, &stage, &args_json, &mut cap_fn);
             match captured {
                 Some(pkg) => Ok(json!({ "assembled": pkg })),
                 None => Err("assemble: agent 턴 없음(stage 미도달)".to_string()),
@@ -203,7 +203,7 @@ fn exec_stage_inprocess(body: &str, mode: StageMode) -> Result<Value, String> {
                 used = true;
                 Ok(out.clone())
             };
-            let (events, result) = doc_exec::run(&doc, &stage, &args_json, &mut inj_fn)?;
+            let (events, result) = doc_interp::run(&doc, &stage, &args_json, &mut inj_fn)?;
             let _ = used;
             shape_stage_output(&stage, events, result)
         }
@@ -242,7 +242,7 @@ fn exec_stage_inprocess(body: &str, mode: StageMode) -> Result<Value, String> {
                             .map_err(|e| format!("agent {label:?} 실패: {e}"))
                     }
                 };
-            let (events, result) = doc_exec::run(&doc, &stage, &args_json, &mut agent_fn)?;
+            let (events, result) = doc_interp::run(&doc, &stage, &args_json, &mut agent_fn)?;
             shape_stage_output(&stage, events, result)
         }
     }
@@ -502,13 +502,13 @@ fn publish_doc(
     args: &Value,
     task_ctx: Option<&Value>,
 ) -> Result<usize, String> {
-    if !doc_exec::is_doc(doc) {
+    if !doc_interp::is_doc(doc) {
         return Err("workflow-doc@0.0.1 필요(spec 필드)".to_string());
     }
     let mut no_agent = |_p: &str, _s: Option<&Value>, _l: &str| -> Result<Value, String> {
         Err("발행(--emit)은 agent 를 호출하지 않는다".to_string())
     };
-    let (events, _result) = doc_exec::run(doc, "", args, &mut no_agent)?;
+    let (events, _result) = doc_interp::run(doc, "", args, &mut no_agent)?;
     relay_events(deps, &events, task_ctx)
 }
 
@@ -832,13 +832,13 @@ fn run_publish(deps: &dyn Deps, runtime: &mut Runtime, params: Value) -> Outcome
     }
 }
 
-// idea → workflow-doc(LLM 저작) — CLI run_generate_skeleton 과 동일 lib 경로(generate_skeleton::generate_doc).
+// idea → workflow-doc(LLM 저작) — CLI run_generate_skeleton 과 동일 lib 경로(author_doc::generate_doc).
 // 정련 지침과 workflow 문서는 바이너리에 포함되어 설치 경로와 무관하다.
 fn generate_skeleton_inprocess(idea: &str, model: Option<&str>) -> Result<Value, String> {
     let model = model.unwrap_or(DEFAULT_MODEL);
     let env = auth_env()?;
     let lang = Language::parse("ko");
-    crate::generate_skeleton::generate_doc(
+    crate::author_doc::generate_doc(
         idea,
         model,
         Some(&lang),

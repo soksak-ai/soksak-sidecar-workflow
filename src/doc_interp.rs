@@ -1,4 +1,4 @@
-//! doc_exec — workflow-doc@0.0.1(언어중립 JSON 워크플로 문서) 실행기.
+//! doc_interp — workflow-doc@0.0.1(언어중립 JSON 워크플로 문서) 실행기.
 //!
 //! 저작 LLM은 선언형 문서를 만들고 실행기는 검증된 stage만 수행한다. publish는 NodeEvent,
 //! agent는 주입된 러너, generate 산출은 draft_doc build/validate 경계로 흐른다.
@@ -16,7 +16,7 @@
 //!   {"op":"return","value":{k: expr}}
 //! path = "root.seg.seg" — root 는 locals(bind/item/index/collect) → "args" → "values".
 
-use crate::emit_host::NodeEvent;
+use crate::node_event::NodeEvent;
 use serde_json::{Map, Value as Json};
 
 pub const SPEC: &str = "workflow-doc@0.0.1";

@@ -37,5 +37,5 @@ plan-skill.md)이 이어진다.
 - 프롬프트 원문(RESEARCH_COMMON·FACT_VERIFY_TMPL·prompts.research)의 byte 안정성은 콘텐츠 주소화
   dedup 의 전제다(PRINCIPLES §3) — 다듬기 변경은 전 research 의 dedup 을 깨는 변경이며 의도적일 때만.
 - 스키마(RESEARCH_SCHEMA·VERIFY_SCHEMA)와 stages 구조 변경은 소비자(서비스 reconcile 분기·검증
-  파이프·이슈라이즈 게이트)와의 계약 변경이다 — 해당 테스트(doc_exec `bundled_research_doc_*`,
+  파이프·이슈라이즈 게이트)와의 계약 변경이다 — 해당 테스트(doc_interp `bundled_research_doc_*`,
   reconcile.rs research/plan 케이스)를 함께 고친다(기준 약화 금지 §6).

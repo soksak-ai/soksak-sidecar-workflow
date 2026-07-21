@@ -1,6 +1,6 @@
 # workflow-doc@0.0.1 — field reference
 
-> Single source of truth: `src/doc_exec.rs` (validate + run). This file mirrors it for the authoring LLM.
+> Single source of truth: `src/doc_interp.rs` (validate + run). This file mirrors it for the authoring LLM.
 
 ## Document
 

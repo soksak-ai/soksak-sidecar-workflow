@@ -1,5 +1,5 @@
-//! generate_skeleton — 아이디어 → workflow-doc(LLM 저작) 파이프라인의 **순수 프롬프트 조립**.
-//! LLM 호출·검증 게이트(parse_json_lenient + doc_exec::validate)는 main.rs(run_generate_skeleton)가 한다.
+//! author_doc — 아이디어 → workflow-doc(LLM 저작) 파이프라인의 **순수 프롬프트 조립**.
+//! LLM 호출·검증 게이트(parse_json_lenient + doc_interp::validate)는 main.rs(run_generate_skeleton)가 한다.
 
 use crate::derive_directive::DomainDirective;
 
@@ -49,7 +49,7 @@ pub fn generate_doc(
     use crate::provider::{run_agent, AgentRequest};
     use serde_json::Value;
     let directives =
-        crate::derive_directive::synth_directives(idea, &crate::domain_lib::builtin_library());
+        crate::derive_directive::derive_directives(idea, &crate::domain_lib::builtin_library());
     let mut user = build_user_prompt(idea, &directives);
     if let Some(l) = lang {
         user.push_str(&l.contract());
@@ -101,8 +101,8 @@ pub fn generate_doc(
             last_err = "정련 directive 비어있음".to_string();
             continue;
         }
-        let doc = crate::doc_exec::inject_refinement(&template, &directive, &description);
-        if let Err(violations) = crate::doc_exec::validate(&doc) {
+        let doc = crate::doc_interp::inject_refinement(&template, &directive, &description);
+        if let Err(violations) = crate::doc_interp::validate(&doc) {
             last_err = format!(
                 "조립 doc 검증 실패({}건): {}",
                 violations.len(),

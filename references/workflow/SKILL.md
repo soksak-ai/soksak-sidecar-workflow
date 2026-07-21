@@ -1,7 +1,7 @@
 ---
 name: workflow-doc
 description: Author a workflow-doc@0.0.1 — a declarative, language-neutral JSON document that the soksak-workflow executor runs stage by stage. Replaces JS (gen.js) authoring: no syntax risk, schema-validated, fail-loud.
-provenance: soksak-workflow doc executor (src/doc_exec.rs) is the single runtime contract. This skill teaches its input format.
+provenance: soksak-workflow doc executor (src/doc_interp.rs) is the single runtime contract. This skill teaches its input format.
 ---
 
 # workflow-doc@0.0.1 — the document IS the program

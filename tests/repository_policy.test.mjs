@@ -45,7 +45,7 @@ test("the source tree contains neither symlink creation nor executable-relative 
 
 test("first-party contract identifiers use the 0.0.1 baseline", () => {
   const files = [
-    "src/doc_exec.rs",
+    "src/doc_interp.rs",
     "src/wf_service.rs",
     "src/main.rs",
     "src/lib.rs",
@@ -55,7 +55,7 @@ test("first-party contract identifiers use the 0.0.1 baseline", () => {
   ];
   const text = files.map(read).join("\n");
   assert.doesNotMatch(text, /\b(?:workflow-doc|soksak-spec-[a-z0-9-]+)@1\b/);
-  assert.match(read("src/doc_exec.rs"), /pub const SPEC: &str = "workflow-doc@0\.0\.1"/);
+  assert.match(read("src/doc_interp.rs"), /pub const SPEC: &str = "workflow-doc@0\.0\.1"/);
   assert.match(read("src/wf_service.rs"), /soksak-spec-plugin-issue-board@0\.0\.1/);
   assert.match(read("src/wf_service.rs"), /soksak-spec-plugin-prompt-store@0\.0\.1/);
 });
