@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::doc_interp;
-use crate::draft_doc;
 use crate::exec_one;
 use crate::lang::Language;
 use crate::node_event::NodeEvent;
@@ -248,44 +247,28 @@ fn exec_stage_inprocess(body: &str, mode: StageMode) -> Result<Value, String> {
     }
 }
 
-// stage 산출을 StageOut 로(main.rs emit_stage_output 의 in-process 판). generate→DraftDoc, 그 외→Children.
-fn shape_stage_output(stage: &str, events: Vec<NodeEvent>, result: Value) -> Result<Value, String> {
-    if stage == "generate" {
-        let mut ddoc = draft_doc::build(&events)?;
-        if let Some(Value::String(t)) = result.get("chunkTitle") {
-            if !t.is_empty() {
-                ddoc.chunk_title = Some(t.clone());
-            }
-        }
-        if let Err(violations) = draft_doc::validate(&ddoc) {
-            return Err(format!(
-                "generate DraftDoc 검증 실패({}건) — 발행 거부",
-                violations.len()
-            ));
-        }
-        Ok(json!({ "draftDoc": serde_json::to_value(&ddoc).map_err(|e| e.to_string())? }))
-    } else {
-        let children: Vec<Value> = events
-            .iter()
-            .filter_map(|ev| serde_json::to_value(ev).ok())
-            .collect();
-        Ok(json!({ "children": children, "result": result }))
-    }
+// stage 산출을 StageOut 로(main.rs emit_stage_output 의 in-process 판). 모든 스테이지가 Children.
+fn shape_stage_output(
+    _stage: &str,
+    events: Vec<NodeEvent>,
+    result: Value,
+) -> Result<Value, String> {
+    let children: Vec<Value> = events
+        .iter()
+        .filter_map(|ev| serde_json::to_value(ev).ok())
+        .collect();
+    Ok(json!({ "children": children, "result": result }))
 }
 
 // shape_stage_output 결과 Value → StageOut(reconcile 소비형).
 fn to_stage_out(v: Value) -> Result<StageOut, String> {
-    if let Some(d) = v.get("draftDoc") {
-        Ok(StageOut::DraftDoc(d.clone()))
-    } else {
-        let children = v
-            .get("children")
-            .and_then(|c| c.as_array())
-            .cloned()
-            .unwrap_or_default();
-        let result = v.get("result").cloned().unwrap_or(Value::Null);
-        Ok(StageOut::Children { children, result })
-    }
+    let children = v
+        .get("children")
+        .and_then(|c| c.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let result = v.get("result").cloned().unwrap_or(Value::Null);
+    Ok(StageOut::Children { children, result })
 }
 
 // ── production Deps — board/scheduler는 중개 cmd, exec는 in-process ──
@@ -888,6 +871,41 @@ impl Deps for DirDeps<'_> {
         let full = format!("{}/{}", self.dir, rel);
         self.inner.write_file(&full, content);
     }
+}
+
+// ── draft-run — 앱/보드 없이 DRAFT 흐름을 in-process 로 끝까지 돌리는 진입점 ──
+
+/// 실 exec 백엔드 — reconcile 이 부르는 노드/스테이지 실행을 in-process provider(claude -p)로 배선.
+/// mock 배선(mem_board_tests)과 대칭: 여기만 실 LLM 을 안다.
+struct RealExec;
+impl crate::mem_board::Exec for RealExec {
+    fn exec_one(&self, body: &str) -> Result<Value, String> {
+        exec_one_inprocess(body)
+    }
+    fn exec_stage(&self, body: &str) -> Result<StageOut, String> {
+        to_stage_out(exec_stage_inprocess(body, StageMode::Normal)?)
+    }
+}
+
+/// idea → 초기 DAG 발행(generate_skeleton→publish_doc) → reconcile_tick 반복(ready 소진까지).
+/// 인메모리 보드 + 실 provider. 인증 env(ANTHROPIC_*/OAuth) 없으면 저작/exec 가 명확한 에러를 낸다.
+/// reconcile 로직은 재구현하지 않는다 — Deps 만 인메모리로 채우고 tick 을 인라인 반복한다.
+pub fn draft_run(
+    idea: &str,
+    model: Option<&str>,
+    lang: &str,
+    dump: Option<&std::path::Path>,
+) -> Result<crate::mem_board::DriveReport, String> {
+    // 스켈레톤 저작(실 LLM) — 인증 검사는 auth_env 가 수행한다.
+    let doc = generate_skeleton_inprocess(idea, model)?;
+    let board = crate::mem_board::MemBoard::new(RealExec);
+    let directive = resolve_directive(None, Some(&doc), Some(idea));
+    let task_ctx = json!({ "skeleton": doc, "directive": directive });
+    let args = json!({ "lang": lang });
+    // 초기 DAG(chunk + Spec 섹션 + draft-review task) 발행 — LLM 0.
+    publish_doc(&board, &doc, &args, Some(&task_ctx))?;
+    // ready 소진까지 reconcile_tick 반복 — 라운드별 요건 전문은 dump 파일로(내용이 산출물).
+    Ok(crate::mem_board::drive(&board, 2000, 5, dump))
 }
 
 /// serve 진입점 — 코어가 `<bin> serve`로 스폰한다.

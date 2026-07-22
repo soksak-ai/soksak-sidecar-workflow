@@ -49,6 +49,9 @@ pub struct Node {
     /// 검증 결과(JSON 문자열 등) — issuerize 가 반려 사유(result.reason) 를 읽는다.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+    /// 출처 축 — 사용자 원문 근거(user) vs 에이전트 파생(agent). 보드가 보존해야 덤프·뷰에서 구분된다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
     /// 라우팅(자기선택) — 저작 LLM 이 이 노드의 난이도로 실은 tier. exec 입력에 실려 실행자가 honor.
     /// 미지정이면 실행자 기본(최고, 품질우선). model 은 provider 별 별칭/식별자.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,8 +72,6 @@ impl Node {
 /// exec-stage 출력 3형. --assemble은 별도 반환이라 여기 없다.
 #[derive(Debug, Clone)]
 pub enum StageOut {
-    /// generate/draft-chunk → DraftDoc 객체.
-    DraftDoc(Value),
     /// 일반 stage → 자식 add 이벤트 스트림 + result.
     Children { children: Vec<Value>, result: Value },
 }
@@ -189,7 +190,6 @@ pub struct ReconcileState {
 pub struct StageCtx {
     pub stage_body: String,
     pub stage_name: String,
-    pub ledger: Option<Vec<Value>>,
     pub body: String,
 }
 
@@ -609,6 +609,15 @@ pub fn build_add_params(
     if let Some(b) = s("badge") {
         params.insert("badge".into(), json!(b));
     }
+    // 섹션 접힘 — 스켈레톤이 발행하는 Spec 섹션이 자식 프레임을 접은 채 뜨게 한다(보드 모델).
+    // 미emit 이면 미삽입(기존 발행 동작 불변).
+    if ev
+        .get("collapsed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        params.insert("collapsed".into(), json!(true));
+    }
     if ev
         .get("is_draft")
         .and_then(|v| v.as_bool())
@@ -702,7 +711,6 @@ fn with_routing(body: String, node: &Node) -> String {
 
 struct StageInput {
     stage_body: String,
-    ledger: Option<Vec<Value>>,
 }
 
 // exec-stage args 주입 — ledger/facts를 stage args에 실어 보낸다.
@@ -720,7 +728,6 @@ fn build_stage_input(
         let Some(chunk) = target.parent_id.as_deref() else {
             return Ok(StageInput {
                 stage_body: body.to_string(),
-                ledger: None,
             });
         };
         let doc = build_consensus_document(&deps.list_nodes(), chunk, &spec);
@@ -736,13 +743,10 @@ fn build_stage_input(
         }
         return Ok(StageInput {
             stage_body: inp.to_string(),
-            ledger: Some(doc),
         });
     }
     let ledger_stages: HashSet<&str> = [
         "hunt",
-        "classify",
-        "audit",
         "research",
         "plan",
         "design-interface",
@@ -760,7 +764,6 @@ fn build_stage_input(
     .into_iter()
     .collect();
     let mut stage_body = body.to_string();
-    let mut ledger: Option<Vec<Value>> = None;
     if ledger_stages.contains(stage_name) && target.parent_id.is_some() {
         let parent = target.parent_id.clone().unwrap();
         let materialize = || -> Result<String, String> {
@@ -795,21 +798,9 @@ fn build_stage_input(
             }
             Ok(inp.to_string())
         };
-        // ledger 는 반환에도 실어야 함(classify 검증). materialize 를 한 번 더 부르지 않게 캡처.
-        match deps.materialize_ledger(&parent) {
-            Ok(led) => {
-                ledger = Some(led);
-                match materialize() {
-                    Ok(sb) => stage_body = sb,
-                    Err(e) => {
-                        if stage_name != "hunt" {
-                            return Err(
-                                json!({ "ok": false, "processed": 0, "id": target.id, "code": "INTERNAL", "message": format!("원장 materialize 실패({stage_name}): {e}") }),
-                            );
-                        }
-                    }
-                }
-            }
+        // hunt 는 원장 없이도 진행(과거 관용) — 그 밖은 materialize 실패를 에러로 올린다.
+        match materialize() {
+            Ok(sb) => stage_body = sb,
             Err(e) => {
                 if stage_name != "hunt" {
                     return Err(
@@ -819,11 +810,11 @@ fn build_stage_input(
             }
         }
     }
-    Ok(StageInput { stage_body, ledger })
+    Ok(StageInput { stage_body })
 }
 
 /// 스테이지 → 섹션 제목 — 프레임을 매달 chunk-밑 섹션. research→Research, design 체인 3스테이지→Design(공유),
-/// plan→Plan. Spec 은 apply_draft_doc 소관. 그 밖(generate/audit/body 등)은 섹션 없음.
+/// plan→Plan. Spec 은 스켈레톤 발행 + ensure_section 소관. 그 밖(body 등)은 섹션 없음.
 fn stage_section_title(stage: &str) -> Option<&'static str> {
     match stage {
         "research" => Some("Research"),
@@ -863,8 +854,13 @@ struct ConsensusSpec {
     section: &'static str,
     scope: FrameScope,
     /// 신규(add) 프레임의 최초 badge — 검수 대상(검수전)이냐 태생 확정(o)이냐.
-    /// item·research fact 는 검수전(per-item 검증 대상), design fact 는 태생 o(파생 결정, 검증 없음).
+    /// research fact 는 검수전(per-item 검증 대상). draft item·design fact 는 태생 o —
+    /// 근거를 달고 전체 맥락에서 추가된 것 자체가 검증이라 격리 재검증을 하지 않는다.
     create_badge: &'static str,
+    /// 이 지점이 **전체집합(whole-set)** 을 산출하는가. true 면 출력이 델타가 아니라 완전한 집합이고
+    /// 델타는 spec_set 이 계산한다(add/change/remove + 미언급 fail-loud), 수렴(집합 동일)이 곧 chunk
+    /// 인증이다. DRAFT 만 true — research/design 은 기존 changes[] 델타 경로 그대로.
+    whole_set: bool,
 }
 enum FrameScope {
     Items,
@@ -879,19 +875,22 @@ fn consensus_spec(stage: &str) -> Option<ConsensusSpec> {
             kind: "item",
             section: "Spec",
             scope: FrameScope::Items,
-            create_badge: "검수전",
+            create_badge: "o",
+            whole_set: true,
         }),
         "research-audit" => Some(ConsensusSpec {
             kind: "fact",
             section: "Research",
             scope: FrameScope::ResearchFacts,
             create_badge: "검수전",
+            whole_set: false,
         }),
         "design-audit" => Some(ConsensusSpec {
             kind: "fact",
             section: "Design",
             scope: FrameScope::DesignFacts,
             create_badge: "o",
+            whole_set: false,
         }),
         _ => None,
     }
@@ -977,7 +976,8 @@ fn inject_round(params: &mut Value, round: u32) {
 }
 
 /// 형제 프레임의 정규화 verify body 를 복제하되 vars.title/description 를 신규 프레임 값으로 교체한다.
-/// 신규(add) 프레임도 형제와 동일한 검증 배선(promptHash+refs+schema)을 얻어 per-item 검증 대상이 된다.
+/// 신규(add) 프레임도 형제와 동일한 검증 배선(promptHash+refs+schema)을 얻는다 — per-item 검증이
+/// 남은 scope(research fact)에서만 실제로 쓰인다.
 /// 비-정규화(빈·plain) body(예: 태생-o design fact)면 그대로 반환.
 fn clone_verify_body(sibling_body: &str, title: &str, description: &str) -> String {
     let mut v: Value = match serde_json::from_str(sibling_body) {
@@ -1014,6 +1014,11 @@ fn build_consensus_create(
         .unwrap_or("")
         .to_string();
     let history = create.get("history").cloned().unwrap_or_else(|| json!([]));
+    // 출처 축 — reviewer 가 낸 origin 이 있으면 각인, 없으면 기존 기본값(파생=agent) 그대로.
+    let origin = create
+        .get("origin")
+        .and_then(|v| v.as_str())
+        .unwrap_or("agent");
     let parent = section_id.unwrap_or(chunk_id);
     let body = template
         .map(|t| clone_verify_body(t.body_str(), &title, &description))
@@ -1029,18 +1034,17 @@ fn build_consensus_create(
         "type": "task",
         "kind": spec.kind,
         "badge": spec.create_badge,
-        "origin": "agent",
+        "origin": origin,
         "result": json!({ "history": history }).to_string(),
     })
 }
 
-// stage 산출 소비 — draftDoc 검증·발행 또는 자식 발행 + classify/audit 처리.
+// stage 산출 소비 — 자식 발행 + 합의 changes 물질화(수렴 시 chunk 인증).
 fn consume_stage_output(
     deps: &dyn Deps,
     target: &Node,
     body: &str,
     stage_name: &str,
-    ledger: Option<Vec<Value>>,
     staged: StageOut,
 ) -> Value {
     // childCtx — 자식 task 에 전파할 workflowRef/skeleton+directive.
@@ -1055,32 +1059,6 @@ fn consume_stage_output(
     });
 
     match staged {
-        StageOut::DraftDoc(draft) => {
-            // draft_doc 검증 재사용(골든 태그). build 는 이미 됐고 여기선 재검증.
-            let doc: crate::draft_doc::DraftDoc = match serde_json::from_value(draft.clone()) {
-                Ok(d) => d,
-                Err(e) => {
-                    return json!({ "ok": false, "processed": 0, "id": target.id, "code": "VALIDATION_FAILED", "message": format!("DraftDoc 역직렬화 실패: {e}") })
-                }
-            };
-            if let Err(violations) = crate::draft_doc::validate(&doc) {
-                return json!({ "ok": false, "processed": 0, "id": target.id, "code": "VALIDATION_FAILED", "message": format!("DraftDoc 검증 실패({}건): {}", violations.len(), violations[0]) });
-            }
-            let published = match apply_draft_doc(
-                deps,
-                &draft,
-                target.parent_id.as_deref(),
-                child_ctx.as_ref(),
-            ) {
-                Ok(p) => p,
-                Err(e) => {
-                    return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INTERNAL", "message": e })
-                }
-            };
-            deps.edit_node(&target.id, json!({ "status": "done" }));
-            deps.poke();
-            json!({ "ok": true, "processed": 1, "id": target.id, "stage": true, "published": published })
-        }
         StageOut::Children { children, result } => {
             let mut key_of: HashMap<String, String> = HashMap::new();
             let mut role_to_hash: HashMap<String, String> = HashMap::new();
@@ -1093,8 +1071,32 @@ fn consume_stage_output(
             // 합의 라운드 카운터(reconcile 소유) — 이 스테이지가 합의 스테이지면 body args.round 에서 읽는다.
             let is_consensus = consensus_spec(stage_name).is_some();
             let round = read_round(body);
+            let res = &result;
+
+            // ── DRAFT 전체집합 경로 — 출력이 델타가 아니라 완전한 집합이고, 델타는 시스템이 계산한다.
+            // 위반(근거 누락·미언급 증발·미지 id)이면 **아무것도 변형하지 않고** 에러를 올린다(fail-loud).
+            let mut spec_plan: Option<crate::spec_set::SpecSetPlan> = None;
+            if let (Some(spec), Some(chunk)) =
+                (consensus_spec(stage_name), target.parent_id.as_deref())
+            {
+                if spec.whole_set && res.get("requirements").is_some() {
+                    let doc = build_consensus_document(&deps.list_nodes(), chunk, &spec);
+                    let p = crate::spec_set::plan(&doc, res, round);
+                    if !p.violations.is_empty() {
+                        return json!({ "ok": false, "processed": 0, "id": target.id, "code": "VALIDATION_FAILED",
+                            "message": format!("전체집합 산출 위반 {}건: {}", p.violations.len(), p.violations.join(" / ")) });
+                    }
+                    spec_plan = Some(p);
+                }
+            }
+            // 집합이 그대로면(수렴) 자기재발행을 억제해 루프를 멈춘다 — 정지가 곧 인증이다.
+            let whole_set_converged = spec_plan.as_ref().map(|p| p.converged).unwrap_or(false);
             // 상한 도달로 자기재발행을 봉인했는가 — 봉인 시 chunk 를 badge=f 로 확정하고 루프를 멈춘다.
             let mut sealed = false;
+            // 실제 발행 수 — 억제된 자기재발행(수렴·상한)은 세지 않는다. 보고가 현실과 어긋나면 안 된다.
+            let mut published = 0usize;
+            // whole-set 라운드의 (add, change, remove) — 관전용. 없으면(비-whole-set) None.
+            let mut delta: Option<(usize, usize, usize)> = None;
             for ev in &children {
                 if let Some(reg) = ev
                     .get("register_prompts")
@@ -1110,6 +1112,9 @@ fn consume_stage_output(
                     && ev.get("kind").and_then(|v| v.as_str()) == Some("task")
                     && ev.get("stage").and_then(|v| v.as_str()) == Some(stage_name);
                 if is_republish {
+                    if whole_set_converged {
+                        continue; // 수렴 — 다음 라운드 없음(정지).
+                    }
                     if round >= CONSENSUS_ROUND_MAX {
                         sealed = true;
                         continue;
@@ -1158,74 +1163,103 @@ fn consume_stage_output(
                     inject_round(&mut params, round + 1);
                 }
                 if let Some(node_id) = deps.add_node(params) {
+                    published += 1;
                     if let Some(ev_id) = ev.get("id").and_then(|v| v.as_str()) {
                         key_of.insert(ev_id.to_string(), node_id);
                     }
                 }
             }
-            let res = &result;
-            let mut assigned = 0;
-            if stage_name == "classify" {
-                let assignments = res.get("assignments").and_then(|v| v.as_array());
-                let Some(assignments) = assignments else {
-                    return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INVALID_RESULT", "message": "classify 결과에 assignments 배열 없음" });
-                };
-                let Some(ledger) = ledger.as_ref() else {
-                    return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INTERNAL", "message": "classify 원장 materialize 실패 — 배정 검증 불가" });
-                };
-                let ledger_ids: HashSet<String> = ledger
-                    .iter()
-                    .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
-                    .collect();
-                let mut seen: HashSet<String> = HashSet::new();
-                let mut errs: Vec<String> = Vec::new();
-                for a in assignments {
-                    let id = a.get("id").and_then(|v| v.as_str());
-                    let cat = a.get("category").and_then(|v| v.as_str());
-                    match (id, cat) {
-                        (Some(id), Some(cat)) if !cat.is_empty() => {
-                            if !ledger_ids.contains(id) {
-                                errs.push(format!("원장 밖 id: {id}"));
-                            } else if seen.contains(id) {
-                                errs.push(format!("중복 배정: {id}"));
-                            }
-                            seen.insert(id.to_string());
-                        }
-                        _ => errs.push(format!("형식 위반: {a}")),
+            let assigned = 0;
+
+            // 전체집합 델타 물질화 — creates=신규 프레임, edits=change/remove/재add(모두 history 적층).
+            if let (Some(plan), Some(spec), Some(chunk)) = (
+                spec_plan.as_ref(),
+                consensus_spec(stage_name),
+                target.parent_id.as_deref(),
+            ) {
+                if let Some(t) = res
+                    .get("chunkTitle")
+                    .and_then(|v| v.as_str())
+                    .filter(|t| !t.is_empty())
+                {
+                    deps.edit_node(chunk, json!({ "title": t }));
+                }
+                if !plan.creates.is_empty() {
+                    let sid = ensure_section(deps, chunk, spec.section);
+                    let all = deps.list_nodes();
+                    let by_id: HashMap<String, &Node> =
+                        all.iter().map(|n| (n.id.clone(), n)).collect();
+                    let template = all.iter().find(|n| {
+                        n.kind.as_deref() == Some(spec.kind)
+                            && descends(&by_id, n, chunk)
+                            && frame_in_scope(&spec.scope, n)
+                    });
+                    for create in &plan.creates {
+                        deps.add_node(build_consensus_create(
+                            create,
+                            chunk,
+                            sid.as_deref(),
+                            template,
+                            &spec,
+                        ));
                     }
                 }
-                for id in &ledger_ids {
-                    if !seen.contains(id) {
-                        errs.push(format!("미배정: {id}"));
+                for e in &plan.edits {
+                    // state 는 history 의 투영이다 — 둘을 한 번에 기록해 재구성 가능성을 유지한다.
+                    let last_reason = e
+                        .history
+                        .last()
+                        .and_then(|h| h.get("reason").cloned())
+                        .unwrap_or(Value::Null);
+                    let mut edit = serde_json::Map::new();
+                    edit.insert("badge".into(), json!(e.state));
+                    if let Some(t) = &e.title {
+                        edit.insert("title".into(), json!(t));
                     }
-                }
-                if !errs.is_empty() {
-                    return json!({ "ok": false, "processed": 0, "id": target.id, "code": "VALIDATION_FAILED", "message": format!("classify 배정 검증 실패({}건): {}", errs.len(), errs[0]) });
-                }
-                for a in assignments {
-                    let id = a.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    let cat = a.get("category").cloned().unwrap_or(Value::Null);
-                    let er = deps.edit_node(id, json!({ "category": cat }));
-                    if !er.ok {
-                        return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INTERNAL", "message": format!("category 기록 실패({id}): {}", er.message.unwrap_or_default()) });
+                    if let Some(d) = &e.description {
+                        edit.insert("description".into(), json!(d));
                     }
-                    assigned += 1;
+                    edit.insert(
+                        "result".into(),
+                        json!(json!({ "reason": last_reason, "history": e.history }).to_string()),
+                    );
+                    deps.edit_node(&e.id, Value::Object(edit));
                 }
-            }
-            if stage_name == "audit" && !res.is_object() {
-                return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INVALID_RESULT", "message": "audit 결과 없음(verdict/complete 미반환)" });
+                if plan.converged {
+                    deps.edit_node(
+                        chunk,
+                        json!({ "badge": "o", "status": "done",
+                            "result": format!("합의 수렴(round {round}) — 새로 산출한 전체 집합이 기존 집합과 동일") }),
+                    );
+                }
+                // 라이브 관전 채널 — 이 라운드가 집합을 얼마나 좁혔나. remove=state x 로 전이한 edit,
+                // change=o 유지한 edit(개정), add=신규. 관전자는 이 3수로 수렴을 눈으로 본다.
+                let removes = plan.edits.iter().filter(|e| e.state == "x").count();
+                delta = Some((plan.creates.len(), plan.edits.len() - removes, removes));
+                // published 는 그대로 doc children(자기재발행 지시자: 1=루프 계속, 0=수렴·정지) 의미를
+                // 유지한다. 물질화 가시성은 add/change/remove 3수가 전담한다.
             }
             // 합의 changes 물질화 — reviewer changes[{op,id?,title?,description?,reason}] 를 현재 프레임에 적용한다.
             // add→검수전(또는 태생-o) 프레임 신규(올바른 섹션 밑), remove:o→x, reraise:x→o + history 누적(result JSON).
-            // 옛 apply_review(additions/removals)는 changes 없는 audit/classify/generate 반환값 전용(아래 else).
+            // 옛 apply_review(additions/removals)는 changes 없는 비-합의 스테이지 반환값 전용(아래 else).
             if let (Some(changes), Some(spec), Some(chunk)) = (
-                res.get("changes").and_then(|c| c.as_array()),
+                res.get("changes")
+                    .filter(|_| spec_plan.is_none())
+                    .and_then(|c| c.as_array()),
                 consensus_spec(stage_name),
                 target.parent_id.as_deref(),
             ) {
                 let all = deps.list_nodes();
                 let doc = build_consensus_document(&all, chunk, &spec);
                 let cs = crate::consensus::apply_changes(&doc, changes, round);
+                // chunk 제목 — round-1 이 directive 에서 뽑아 낸다(옛 generate 소관을 이 op 가 흡수).
+                if let Some(t) = res
+                    .get("chunkTitle")
+                    .and_then(|v| v.as_str())
+                    .filter(|t| !t.is_empty())
+                {
+                    deps.edit_node(chunk, json!({ "title": t }));
+                }
                 if !cs.creates.is_empty() {
                     let section_id = ensure_section(deps, chunk, spec.section);
                     let by_id: HashMap<String, &Node> =
@@ -1279,30 +1313,6 @@ fn consume_stage_output(
                             chunk_edit.insert("result".into(), json!(v));
                         }
                     }
-                    if stage_name == "classify" {
-                        if let Some(d) = res.get("dimension").and_then(|v| v.as_str()) {
-                            if !d.is_empty() {
-                                chunk_edit.insert("result".into(), json!(d));
-                            }
-                        }
-                    }
-                    if stage_name == "audit" {
-                        let f_count = ledger
-                            .as_ref()
-                            .map(|l| {
-                                l.iter()
-                                    .filter(|e| {
-                                        e.get("badge").and_then(|b| b.as_str()) == Some("f")
-                                    })
-                                    .count() as i64
-                            })
-                            .unwrap_or(-1);
-                        let complete = res.get("complete").and_then(|v| v.as_bool()) == Some(true);
-                        chunk_edit.insert(
-                            "badge".into(),
-                            json!(if complete && f_count == 0 { "o" } else { "f" }),
-                        );
-                    }
                     if !chunk_edit.is_empty() {
                         deps.edit_node(parent_id, Value::Object(chunk_edit));
                     }
@@ -1320,7 +1330,15 @@ fn consume_stage_output(
             }
             deps.edit_node(&target.id, json!({ "status": "done" }));
             deps.poke();
-            json!({ "ok": true, "processed": 1, "id": target.id, "stage": true, "published": children.len(), "assigned": assigned })
+            {
+                let mut out = json!({ "ok": true, "processed": 1, "id": target.id, "stage": true, "published": published, "assigned": assigned });
+                if let Some((a, c, rm)) = delta {
+                    out["adds"] = json!(a);
+                    out["changes"] = json!(c);
+                    out["removes"] = json!(rm);
+                }
+                out
+            }
         }
     }
 }
@@ -1347,7 +1365,7 @@ fn reconcile_stage(deps: &dyn Deps, target: &Node, body: &str, nodes: &[Node]) -
             return json!({ "ok": false, "processed": 0, "id": target.id, "code": "INTERNAL", "message": e })
         }
     };
-    consume_stage_output(deps, target, body, &stage_name, built.ledger, staged)
+    consume_stage_output(deps, target, body, &stage_name, staged)
 }
 
 /// reconcile 한 틱 — ready 1개 처리. task→exec-stage, 항목→exec-one(검증→배지).
@@ -1533,7 +1551,6 @@ pub fn next_tick(
                 StageCtx {
                     stage_body: built.stage_body.clone(),
                     stage_name: stage_name.clone(),
-                    ledger: built.ledger.clone(),
                     body: tn.body_str().to_string(),
                 },
             );
@@ -1627,7 +1644,6 @@ pub fn submit_tick(
                     Ok(b) => StageCtx {
                         stage_body: b.stage_body,
                         stage_name,
-                        ledger: b.ledger,
                         body: node.body_str().to_string(),
                     },
                     Err(e) => return e,
@@ -1640,8 +1656,7 @@ pub fn submit_tick(
                 return json!({ "ok": false, "code": "INTERNAL", "message": format!("stage 산출 재생 실패: {e}") })
             }
         };
-        let consumed =
-            consume_stage_output(deps, &node, &ctx.body, &ctx.stage_name, ctx.ledger, staged);
+        let consumed = consume_stage_output(deps, &node, &ctx.body, &ctx.stage_name, staged);
         if consumed
             .get("ok")
             .and_then(|v| v.as_bool())
@@ -2076,15 +2091,7 @@ pub fn research_gate(deps: &dyn Deps, chunk_id: &str) -> Value {
     json!({ "ok": true, "directive": chunk.description })
 }
 
-// applyDraftDoc·registerPromptTemplates 는 chunk 5(draft 발행). 여기선 시그니처만 전방 선언용 — chunk 5 에서 구현.
-fn apply_draft_doc(
-    deps: &dyn Deps,
-    doc: &Value,
-    chunk_id: Option<&str>,
-    task_ctx: Option<&Value>,
-) -> Result<usize, String> {
-    crate::reconcile::draft::apply_draft_doc(deps, doc, chunk_id, task_ctx)
-}
+// registerPromptTemplates 는 draft 모듈 구현 — 여기선 얇은 위임.
 fn register_prompt_templates(register_prompts: &Value, deps: &dyn Deps) -> Vec<(String, String)> {
     crate::reconcile::draft::register_prompt_templates(register_prompts, deps)
 }

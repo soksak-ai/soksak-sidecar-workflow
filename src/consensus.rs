@@ -94,7 +94,7 @@ pub struct ChangeSet {
     pub converged: bool,
 }
 
-/// apply_changes — 순수. 현재 items(history 포함) + reviewer changes[{op,id?,title?,description?,reason}] + round.
+/// apply_changes — 순수. 현재 items(history 포함) + reviewer changes[{op,id?,title?,description?,reason,origin?}] + round.
 /// add=신규(history 시작). remove=o→x(사유 append). reraise=x→o(반박사유 append). 전이 불일치는 무시(방어).
 /// reraise 의 "제거사유 반박" 은 프롬프트가 강제(reason 이 무엇을 반박하는지는 순수코어가 판정 불가).
 pub fn apply_changes(items: &[Value], changes: &[Value], round: u32) -> ChangeSet {
@@ -130,7 +130,17 @@ pub fn apply_changes(items: &[Value], changes: &[Value], round: u32) -> ChangeSe
                     .unwrap_or("")
                     .to_string();
                 let decision = json!({ "round": round, "action": "add", "reason": reason });
-                creates.push(json!({ "state": "o", "title": title, "description": description, "history": [decision] }));
+                let mut item = json!({ "state": "o", "title": title, "description": description, "history": [decision] });
+                // origin 은 optional 통과 — 지정한 지점(draft)만 싣고, 안 내는 지점(research/design)의
+                // create 는 키 자체가 없어 기존 발행과 동일하게 남는다. 스키마 밖 값은 통과시키지 않는다.
+                if let Some(o) = c
+                    .get("origin")
+                    .and_then(|v| v.as_str())
+                    .filter(|o| matches!(*o, "user" | "agent"))
+                {
+                    item["origin"] = json!(o);
+                }
+                creates.push(item);
             }
             "remove" | "reraise" => {
                 let id = c.get("id").and_then(|v| v.as_str()).unwrap_or("").trim();
@@ -270,6 +280,48 @@ mod tests {
             json!({ "round": 1, "action": "add", "reason": "중심 엔티티 입력면" })
         );
         assert!(!cs.converged, "변경 있으면 미수렴");
+    }
+
+    #[test]
+    fn changes_add_passes_origin_through_when_given() {
+        // origin 은 "사용자가 말한 것 vs 에이전트가 채운 것" 을 보드에서 가르는 출처 축이다.
+        let cs = apply_changes(
+            &[],
+            &[
+                json!({ "op": "add", "title": "무한 분할", "description": "d", "reason": "지시서 명시", "origin": "user" }),
+                json!({ "op": "add", "title": "크래시 복구", "description": "d", "reason": "back-side", "origin": "agent" }),
+            ],
+            1,
+        );
+        assert_eq!(cs.creates[0]["origin"], "user");
+        assert_eq!(cs.creates[1]["origin"], "agent");
+    }
+
+    #[test]
+    fn changes_add_omits_origin_key_entirely_when_absent() {
+        // 공유 코어 additive 보장 — origin 을 내지 않는 지점(research-audit·design-audit)의 create 는
+        // origin 키 자체가 없어야 한다. 기본값으로 채우면 그들의 발행 노드가 오염된다.
+        let cs = apply_changes(
+            &[],
+            &[json!({ "op": "add", "title": "캐시 전략", "description": "d", "reason": "r" })],
+            1,
+        );
+        assert!(
+            cs.creates[0].get("origin").is_none(),
+            "origin 미지정 → 키 부재(기본값 주입 금지): {}",
+            cs.creates[0]
+        );
+    }
+
+    #[test]
+    fn changes_add_ignores_unknown_origin_value() {
+        // 스키마 밖 값은 통과시키지 않는다 — 보드 출처 축이 임의 문자열로 오염되면 구분이 무의미해진다.
+        let cs = apply_changes(
+            &[],
+            &[json!({ "op": "add", "title": "T", "reason": "r", "origin": "search" })],
+            1,
+        );
+        assert!(cs.creates[0].get("origin").is_none(), "미지 origin 은 생략");
     }
 
     #[test]

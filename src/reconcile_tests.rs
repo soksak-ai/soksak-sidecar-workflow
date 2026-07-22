@@ -708,75 +708,6 @@ fn reconcile_tick_task_publish() {
 }
 
 #[test]
-fn apply_draft_doc_emits_routing_tier_on_item() {
-    // draft(주 워크플로) 요건이 실은 tier 가 item 노드 발행 params 까지 흘러야 reconcile 이 exec 에 honor.
-    let doc = json!({
-        "kind": "draft-chunk", "chunk_ref": "chunk",
-        "verify_contract": { "template": "T {{title}}", "directive": "D", "schema": { "type": "object" }, "initial_badge": "검수전" },
-        "requirements": [
-            { "id": "i0", "title": "auth 경계", "description": "d", "origin": "agent", "badge": "검수전", "effort": "max", "model": "gpt-5.6-sol" },
-            { "id": "i1", "title": "날짜 포맷", "description": "d", "origin": "user", "badge": "검수전" }
-        ],
-        "tasks": []
-    });
-    let d = FakeDeps::new(vec![]);
-    let n = crate::reconcile::draft::apply_draft_doc(&d, &doc, Some("chunk-k"), None).unwrap();
-    assert_eq!(n, 2, "요건 2개 발행(Spec 섹션은 계수 밖)");
-    let add = &d.c().add;
-    // add[0] = Spec 섹션, add[1..] = 요건 프레임(Spec 섹션 밑).
-    assert_eq!(add[1]["effort"], "max", "tier 실은 요건 → item 노드 effort");
-    assert_eq!(add[1]["model"], "gpt-5.6-sol");
-    assert!(
-        add[2].get("effort").is_none(),
-        "미지정 요건 = item 노드 effort 없음(기본 최고 보존)"
-    );
-    assert!(add[2].get("model").is_none());
-}
-
-#[test]
-fn apply_draft_doc_nests_requirements_under_spec_section() {
-    // 보드 모델 — 요건 프레임은 chunk 직속이 아니라 chunk 밑 "Spec" 섹션(collapsed) 밑에 locked 로 붙는다.
-    // Spec 섹션은 검수전 item 처럼 보이면 안 됨(badge 없음 + item 아닌 kind) → pick_ready 가 실행/검증 대상으로 안 잡는다.
-    let doc = json!({
-        "kind": "draft-chunk", "chunk_ref": "chunk",
-        "verify_contract": { "template": "T {{title}}", "directive": "D", "schema": { "type": "object" }, "initial_badge": "검수전" },
-        "requirements": [
-            { "id": "i0", "title": "auth 경계", "description": "d", "origin": "agent", "badge": "검수전" },
-            { "id": "i1", "title": "날짜 포맷", "description": "d", "origin": "user", "badge": "검수전" }
-        ],
-        "tasks": []
-    });
-    let d = FakeDeps::new(vec![]);
-    crate::reconcile::draft::apply_draft_doc(&d, &doc, Some("chunk-k"), None).unwrap();
-    let add = &d.c().add;
-    // (a) 첫 발행 = Spec 섹션(chunk 직속, locked, 섹션 kind, badge 없음).
-    let spec = &add[0];
-    assert_eq!(spec["parentId"], "chunk-k", "Spec 섹션은 chunk 직속");
-    assert_eq!(spec["locked"], true, "Spec 섹션 locked");
-    assert_eq!(
-        spec["kind"], "section",
-        "섹션 kind — item/task 아님(pick_ready 제외)"
-    );
-    assert!(
-        spec.get("badge").is_none(),
-        "Spec 섹션은 badge 없음(검수전 item 아님)"
-    );
-    // (c) collapse 는 자식을 숨기는 것 → leaf 프레임이 아니라 Spec 섹션에 실린다(프레임 기본 접힘).
-    assert_eq!(spec["collapsed"], true, "Spec 섹션 collapsed");
-    // (b) 요건 프레임 parentId = Spec 섹션 id(chunk 직속 아님). FakeDeps: 첫 add → "k-1".
-    assert_eq!(add[1]["parentId"], "k-1", "요건 프레임은 Spec 섹션 밑");
-    assert_eq!(add[2]["parentId"], "k-1");
-    assert!(
-        add[1].get("collapsed").is_none(),
-        "leaf 프레임엔 collapsed 없음"
-    );
-    // 프레임은 여전히 item + 검수전 + locked(부모만 바뀜, id·badge 불변 → blockedBy 유효).
-    assert_eq!(add[1]["kind"], "item");
-    assert_eq!(add[1]["badge"], "검수전");
-    assert_eq!(add[1]["locked"], true);
-}
-
-#[test]
 fn reconcile_tick_hunt_ledger_injected() {
     let ns = nodes(vec![
         json!({ "id": "hunt", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"skeleton\":{},\"stage\":\"hunt\",\"args\":{\"directive\":\"약국\"}}" }),
@@ -791,53 +722,6 @@ fn reconcile_tick_hunt_ledger_injected() {
         json!([{ "title": "재고 차감", "badge": "o" }])
     );
     assert_eq!(sent["stage"], "hunt");
-}
-
-#[test]
-fn reconcile_tick_classify_ledger_injected() {
-    let ns = nodes(vec![
-        json!({ "id": "classify", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"classify\",\"args\":{\"directive\":\"약국\"}}" }),
-    ]);
-    let d = FakeDeps::new(ns)
-        .stage(staged_children(
-            vec![],
-            json!({ "dimension": "", "assignments": [] }),
-        ))
-        .ledger(vec![
-            json!({ "id": "i0", "title": "재고 차감", "badge": "o" }),
-        ]);
-    tick(&d);
-    let sent: Value = serde_json::from_str(&d.c().stage[0]).unwrap();
-    assert_eq!(
-        sent["args"]["ledger"],
-        json!([{ "id": "i0", "title": "재고 차감", "badge": "o" }])
-    );
-    assert_eq!(sent["stage"], "classify");
-}
-
-#[test]
-fn reconcile_tick_classify_result_assign() {
-    let ns = nodes(vec![
-        json!({ "id": "classify", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"classify\"}" }),
-    ]);
-    let staged = staged_children(
-        vec![],
-        json!({ "dimension": "기능 영역", "assignments": [{ "id": "i0", "category": "재고" }, { "id": "i1", "category": "발주" }] }),
-    );
-    let d = FakeDeps::new(ns).stage(staged).ledger(vec![
-        json!({ "id": "i0", "title": "차감", "badge": "o" }),
-        json!({ "id": "i1", "title": "발주", "badge": "o" }),
-    ]);
-    let r = tick(&d);
-    assert_eq!(r["ok"], true);
-    assert_eq!(r["stage"], true);
-    assert_eq!(r["assigned"], 2);
-    assert_eq!(d.c().edit_of("i0").unwrap(), &json!({ "category": "재고" }));
-    assert_eq!(d.c().edit_of("i1").unwrap(), &json!({ "category": "발주" }));
-    assert_eq!(d.c().edit_of("chunk").unwrap()["result"], "기능 영역");
-    assert_eq!(d.c().edit_of("classify").unwrap()["status"], "done");
-    assert_eq!(d.c().poke, 1);
-    assert_eq!(d.c().add.len(), 0);
 }
 
 #[test]
@@ -958,34 +842,10 @@ fn reconcile_tick_rollup_skips_done_chunk() {
 }
 
 #[test]
-fn reconcile_tick_audit_certify() {
+fn stage_result_removals_flip_frames_to_x() {
+    // 비-합의 스테이지가 result.removals 로 지목한 현재 항목을 badge→x(자기교정). 삭제 아님.
     let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
-    ]);
-    let d = FakeDeps::new(ns)
-        .stage(staged_children(
-            vec![],
-            json!({ "verdict": "완결 — 목표 도달", "complete": true }),
-        ))
-        .ledger(vec![
-            json!({ "id": "i0", "title": "a", "badge": "o" }),
-            json!({ "id": "i1", "title": "b", "badge": "x" }),
-        ]);
-    let r = tick(&d);
-    assert_eq!(r["ok"], true);
-    assert_eq!(d.c().edit_of("chunk").unwrap()["badge"], "o");
-    assert_eq!(
-        d.c().edit_of("chunk").unwrap()["result"],
-        "완결 — 목표 도달"
-    );
-    assert_eq!(d.c().edit_of("audit").unwrap()["status"], "done");
-}
-
-#[test]
-fn reconcile_tick_audit_applies_removals() {
-    // 합의 루프의 remove — audit reviewer 가 removals 로 지목한 현재 항목을 badge→x(자기교정). 삭제 아님.
-    let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
+        json!({ "id": "st", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"research\"}" }),
     ]);
     let d = FakeDeps::new(ns)
         .stage(staged_children(
@@ -1013,25 +873,6 @@ fn reconcile_tick_audit_applies_removals() {
         "사유 기록(ledger 잔존→히스토리)"
     );
     assert!(d.c().edit_of("i0").is_none(), "지목 안 된 항목 불변");
-}
-
-#[test]
-fn reconcile_tick_audit_no_removals_field_noop() {
-    // removals 필드 없는 기존 audit 은 remove 무발생(회귀 없음).
-    let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
-    ]);
-    let d = FakeDeps::new(ns)
-        .stage(staged_children(
-            vec![],
-            json!({ "verdict": "완결", "complete": true }),
-        ))
-        .ledger(vec![json!({ "id": "i0", "badge": "o" })]);
-    tick(&d);
-    assert!(
-        d.c().edit_of("i0").is_none(),
-        "removals 없으면 항목 badge 불변"
-    );
 }
 
 #[test]
@@ -1100,6 +941,10 @@ fn build_consensus_document_scopes_research_vs_design_facts() {
 // reconcile_stage 를 직접 호출 — pick_ready 순서(검수전 item 우선) 우회, 합의 task 를 결정적으로 타깃.
 
 // draft-review task + 프레임/섹션 픽스처. round 를 인자로 body args.round 에 싣는다.
+fn task_ev_again() -> Value {
+    json!({ "ev": "add", "id": "draft-review-again", "kind": "task", "stage": "draft-review", "parent": "chunk", "title": "재검", "blocked_by": [] })
+}
+
 fn draft_review_fixture(item_badge: &str, round: u32) -> (Vec<Node>, Node) {
     let ns = nodes(vec![
         json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
@@ -1139,7 +984,7 @@ fn changes_remove_flips_frame_to_x_and_appends_history() {
 }
 
 #[test]
-fn changes_add_publishes_pending_frame_under_correct_section() {
+fn changes_add_publishes_born_o_frame_under_correct_section() {
     // (b) op:add → 검수전 프레임 신규, 올바른 섹션(Spec) 밑, 형제 검증 body 복제(검증 대상화).
     let (ns, target) = draft_review_fixture("o", 1);
     let d = FakeDeps::new(ns).stage(staged_children(
@@ -1155,7 +1000,8 @@ fn changes_add_publishes_pending_frame_under_correct_section() {
         .cloned()
         .expect("신규 item 프레임 발행");
     assert_eq!(added["parentId"], "spec", "올바른 섹션(Spec) 밑");
-    assert_eq!(added["badge"], "검수전", "검수전 프레임(검증 대상)");
+    // DRAFT item 은 태생 o — 전체 맥락에서 근거를 달고 추가된 것 자체가 검증이라 격리 재검증이 없다.
+    assert_eq!(added["badge"], "o", "태생 o 프레임(격리검증 대상 아님)");
     assert_eq!(added["kind"], "item");
     // 형제 body 복제 — promptHash 상속 + vars 교체(검증 배선).
     let cloned: Value = serde_json::from_str(added["body"].as_str().unwrap()).unwrap();
@@ -1163,6 +1009,300 @@ fn changes_add_publishes_pending_frame_under_correct_section() {
     assert_eq!(cloned["vars"]["title"], "동시성 승자 규칙", "vars 교체");
     let result: Value = serde_json::from_str(added["result"].as_str().unwrap()).unwrap();
     assert_eq!(result["history"][0]["action"], "add", "add history 시작");
+}
+
+#[test]
+fn changes_add_stamps_origin_from_reviewer() {
+    // 출처 축 — 사용자 원문에 직접 근거한 요건(user)과 에이전트가 back-side 로 채운 요건(agent)이
+    // 보드에서 갈려야 한다. reviewer 가 add 마다 낸 origin 이 발행 노드까지 각인되는지.
+    let (ns, target) = draft_review_fixture("o", 1);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![],
+        json!({ "changes": [
+            { "op": "add", "title": "무한 분할", "description": "d", "reason": "지시서 명시", "origin": "user" },
+            { "op": "add", "title": "크래시 복구", "description": "d", "reason": "back-side", "origin": "agent" }
+        ] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    reconcile_stage(&d, &target, &body, &snap);
+    let u = d
+        .c()
+        .add_find(|p| p["title"] == "무한 분할")
+        .cloned()
+        .expect("user 요건 발행");
+    let a = d
+        .c()
+        .add_find(|p| p["title"] == "크래시 복구")
+        .cloned()
+        .expect("agent 요건 발행");
+    assert_eq!(u["origin"], "user", "지시서 근거 요건 → origin=user");
+    assert_eq!(a["origin"], "agent", "에이전트 파생 요건 → origin=agent");
+}
+
+#[test]
+fn changes_add_without_origin_keeps_agent_default_for_shared_points() {
+    // [공유 코어 불변 가드] research-audit·design-audit 은 origin 을 내지 않는다. 그 발행 노드는
+    // origin 통과 배선 도입 전과 바이트 동일해야 한다 — 기본값 "agent" 각인이 유지되는지.
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "parentId": null, "status": "inprogress" }),
+        json!({ "id": "research", "kind": "section", "parentId": "chunk", "title": "Research" }),
+        json!({ "id": "f0", "kind": "fact", "parentId": "research", "title": "런타임", "description": "d", "badge": "o" }),
+    ]);
+    let target = node(
+        json!({ "id": "ra", "kind": "task", "parentId": "chunk", "status": "todo", "blockedBy": [],
+        "body": "{\"workflow\":\"research\",\"stage\":\"research-audit\",\"args\":{\"directive\":\"d\",\"round\":1}}" }),
+    );
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![],
+        json!({ "changes": [{ "op": "add", "title": "빌드 도구", "description": "d", "reason": "누락" }] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    reconcile_stage(&d, &target, &body, &snap);
+    let f = d
+        .c()
+        .add_find(|p| p["title"] == "빌드 도구")
+        .cloned()
+        .expect("fact 발행");
+    assert_eq!(
+        f["origin"], "agent",
+        "origin 미지정 지점은 기존 기본값 불변"
+    );
+    assert_eq!(f["badge"], "검수전", "research fact 는 여전히 검수 대상");
+}
+
+// ── DRAFT 전체집합 경로(whole-set) — 출력이 델타가 아니라 완전한 집합이고, 델타는 시스템이 계산한다 ──
+
+// 기존 accepted 요건 2개(i0,i1)를 지닌 draft 픽스처.
+fn spec_set_fixture(round: u32) -> (Vec<Node>, Node) {
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
+        json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
+        json!({ "id": "i0", "kind": "item", "parentId": "spec", "title": "무한 분할", "description": "d0", "badge": "o" }),
+        json!({ "id": "i1", "kind": "item", "parentId": "spec", "title": "사이드바 충돌 해소", "description": "d1", "badge": "o" }),
+    ]);
+    let target = node(
+        json!({ "id": "draft-review", "kind": "task", "parentId": "chunk", "status": "todo", "blockedBy": [],
+        "body": format!("{{\"workflow\":\"draft\",\"stage\":\"draft-review\",\"args\":{{\"directive\":\"d\",\"round\":{round}}}}}") }),
+    );
+    (ns, target)
+}
+
+#[test]
+fn whole_set_materializes_new_kept_and_removed() {
+    // 유지(id 그대로) · 신규(id 없음) · 의도적 제거(removed) 를 시스템이 갈라 물질화한다.
+    let (ns, target) = spec_set_fixture(2);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({
+            "requirements": [
+                { "id": "i0", "title": "무한 분할", "description": "d0", "origin": "user" },
+                { "title": "크래시 복구", "description": "복구 경로", "origin": "agent", "reason": "back-side" }
+            ],
+            "removed": [{ "id": "i1", "reason": "i0 이 흡수 — 중복" }]
+        }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], true, "{r}");
+    // 신규 = id 없는 항목만.
+    let new_node = d
+        .c()
+        .add_find(|p| p["title"] == "크래시 복구")
+        .cloned()
+        .expect("신규 요건 발행");
+    assert_eq!(new_node["badge"], "o");
+    assert_eq!(new_node["origin"], "agent");
+    assert_eq!(new_node["parentId"], "spec", "Spec 섹션 밑");
+    // 유지된 i0 는 신규 발행되지 않는다(중복 금지).
+    assert!(
+        d.c().add_find(|p| p["title"] == "무한 분할").is_none(),
+        "유지 항목을 다시 발행하면 안 된다"
+    );
+    // 의도적 제거 → x + 사유.
+    let e1 = d.c().edit_of("i1").cloned().expect("i1 제거 편집");
+    assert_eq!(e1["badge"], "x");
+    let res1: Value = serde_json::from_str(e1["result"].as_str().unwrap()).unwrap();
+    assert_eq!(res1["reason"], "i0 이 흡수 — 중복");
+}
+
+#[test]
+fn whole_set_unmentioned_existing_id_fails_loud() {
+    // 누락(깜빡)과 의도적 제거를 같게 처리하면 요건이 조용히 증발한다 — 침묵 금지.
+    let (ns, target) = spec_set_fixture(2);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({
+            "requirements": [{ "id": "i0", "title": "무한 분할", "description": "d0" }],
+            "removed": []
+        }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], false, "미언급 기존 id 는 fail-loud: {r}");
+    let msg = r["message"].as_str().unwrap();
+    assert!(msg.contains("i1"), "누락된 id 를 지목해야 한다: {msg}");
+    assert!(
+        d.c().edit_of("i1").is_none() && d.c().add.is_empty(),
+        "fail-loud 는 아무것도 변형하지 않는다"
+    );
+}
+
+#[test]
+fn whole_set_identical_converges_and_certifies() {
+    // 신규 0 ∧ 제거 0 ∧ 개정 0 = 집합 동일 = 수렴. 모델의 성실성이 아니라 구조가 판정한다.
+    let (ns, target) = spec_set_fixture(3);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({
+            "requirements": [
+                { "id": "i0", "title": "무한 분할", "description": "d0" },
+                { "id": "i1", "title": "사이드바 충돌 해소", "description": "d1" }
+            ],
+            "removed": []
+        }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], true);
+    let chunk = d.c().edit_of("chunk").cloned().expect("chunk 인증");
+    assert_eq!(chunk["badge"], "o", "집합 동일 → 인증");
+    assert!(
+        d.c().add.is_empty(),
+        "수렴 라운드는 아무것도 발행하지 않는다"
+    );
+    assert_eq!(r["published"], 0, "자기재발행 억제(정지)");
+}
+
+#[test]
+fn whole_set_return_exposes_add_change_remove_counts() {
+    // 라이브 관전 — tick 라인의 숫자가 유일한 관전 채널이다. whole-set 소비는 매 라운드
+    // add/change/remove 수를 반환해야 집합이 좁혀지는 걸 눈으로 본다(published=1 은 눈먼 것).
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
+        json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
+        json!({ "id": "i0", "kind": "item", "parentId": "spec", "title": "유지A", "description": "d", "badge": "o" }),
+        json!({ "id": "i1", "kind": "item", "parentId": "spec", "title": "개정B", "description": "d", "badge": "o" }),
+        json!({ "id": "i2", "kind": "item", "parentId": "spec", "title": "제거C", "description": "d", "badge": "o" }),
+        json!({ "id": "i3", "kind": "item", "parentId": "spec", "title": "제거D", "description": "d", "badge": "o" }),
+    ]);
+    let target = node(
+        json!({ "id": "draft-review", "kind": "task", "parentId": "chunk", "status": "todo", "blockedBy": [],
+        "body": "{\"workflow\":\"draft\",\"stage\":\"draft-review\",\"args\":{\"directive\":\"d\",\"round\":2}}" }),
+    );
+    // add 3(신규 X/Y/Z) · change 1(개정B) · remove 2(제거C·제거D).
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({
+            "requirements": [
+                { "id": "i0", "title": "유지A", "description": "d" },
+                { "id": "i1", "title": "개정B(정련)", "description": "d2", "reason": "모호" },
+                { "title": "신규X", "description": "d", "reason": "누락" },
+                { "title": "신규Y", "description": "d", "reason": "누락" },
+                { "title": "신규Z", "description": "d", "reason": "누락" }
+            ],
+            "removed": [
+                { "id": "i2", "reason": "중복" },
+                { "id": "i3", "reason": "범위밖" }
+            ]
+        }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["adds"], 3, "신규 3: {r}");
+    assert_eq!(r["changes"], 1, "개정 1: {r}");
+    assert_eq!(r["removes"], 2, "제거 2: {r}");
+}
+
+#[test]
+fn whole_set_convergence_reports_zero_counts() {
+    // 수렴 라운드 = 세 수 모두 0 — 관전자가 "더 나올 게 없어 멈췄다"를 숫자로 확인한다.
+    let (ns, target) = spec_set_fixture(3);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({ "requirements": [
+            { "id": "i0", "title": "무한 분할", "description": "d0" },
+            { "id": "i1", "title": "사이드바 충돌 해소", "description": "d1" }
+        ], "removed": [] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["adds"], 0);
+    assert_eq!(r["changes"], 0);
+    assert_eq!(r["removes"], 0);
+    assert_eq!(r["published"], 0, "수렴이면 자기재발행도 억제");
+}
+
+#[test]
+fn whole_set_change_is_not_convergence() {
+    // 같은 id 인데 내용이 바뀌면 개정 — 변경이므로 수렴이 아니다(다음 라운드가 돌아야 한다).
+    let (ns, target) = spec_set_fixture(2);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({
+            "requirements": [
+                { "id": "i0", "title": "무한 분할(뼈대 고정)", "description": "d0-개정", "reason": "분할 범위가 모호해 오독됨" },
+                { "id": "i1", "title": "사이드바 충돌 해소", "description": "d1" }
+            ],
+            "removed": []
+        }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], true);
+    let e0 = d.c().edit_of("i0").cloned().expect("i0 개정 편집");
+    assert_eq!(e0["title"], "무한 분할(뼈대 고정)");
+    assert!(
+        d.c().edit_of("chunk").map(|c| c["badge"].clone()) != Some(json!("o")),
+        "개정이 있으면 인증 금지"
+    );
+    assert_eq!(r["published"], 1, "이견 잔존 → 자기재발행");
+}
+
+#[test]
+fn whole_set_readd_of_removed_item_stacks_history() {
+    // 제거된 항목의 id 를 다시 집합에 넣는 것도 add 다(연산은 셋뿐) — 계보가 이어진다.
+    let ns = nodes(vec![
+        json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
+        json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
+        json!({ "id": "i0", "kind": "item", "parentId": "spec", "title": "무한 분할", "description": "d0", "badge": "o" }),
+        json!({ "id": "ix", "kind": "item", "parentId": "spec", "title": "권한 경계", "description": "dx", "badge": "x",
+            "result": "{\"history\":[{\"round\":1,\"op\":\"remove\",\"reason\":\"범위밖\"}]}" }),
+    ]);
+    let target = node(
+        json!({ "id": "draft-review", "kind": "task", "parentId": "chunk", "status": "todo", "blockedBy": [],
+        "body": "{\"workflow\":\"draft\",\"stage\":\"draft-review\",\"args\":{\"directive\":\"d\",\"round\":3}}" }),
+    );
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({
+            "requirements": [
+                { "id": "i0", "title": "무한 분할", "description": "d0" },
+                { "id": "ix", "title": "권한 경계", "description": "dx", "reason": "AI 실행 권한은 범위 안 — 제거 사유 반박" }
+            ],
+            "removed": []
+        }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], true);
+    let ex = d.c().edit_of("ix").cloned().expect("ix reraise 편집");
+    assert_eq!(ex["badge"], "o", "x→o 복원");
+    let hist: Value = serde_json::from_str(ex["result"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        hist["history"][0]["op"], "remove",
+        "이전 이력 보존(덮어쓰기 0)"
+    );
+    assert_eq!(hist["history"][1]["op"], "add", "재추가는 add 로 적층");
 }
 
 #[test]
@@ -1212,57 +1352,9 @@ fn changes_round_cap_seals_chunk_instead_of_republish() {
 }
 
 #[test]
-fn reconcile_tick_audit_f_propagate() {
-    let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
-    ]);
-    let d = FakeDeps::new(ns)
-        .stage(staged_children(
-            vec![],
-            json!({ "verdict": "감사 통과 주장", "complete": true }),
-        ))
-        .ledger(vec![
-            json!({ "id": "i0", "badge": "o" }),
-            json!({ "id": "i1", "badge": "f" }),
-        ]);
-    tick(&d);
-    assert_eq!(d.c().edit_of("chunk").unwrap()["badge"], "f");
-}
-
-#[test]
-fn reconcile_tick_audit_incomplete() {
-    let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
-    ]);
-    let d = FakeDeps::new(ns)
-        .stage(staged_children(
-            vec![],
-            json!({ "verdict": "누락 존재", "complete": false }),
-        ))
-        .ledger(vec![json!({ "id": "i0", "badge": "o" })]);
-    tick(&d);
-    assert_eq!(d.c().edit_of("chunk").unwrap()["badge"], "f");
-    assert_eq!(d.c().edit_of("chunk").unwrap()["result"], "누락 존재");
-}
-
-#[test]
-fn reconcile_tick_audit_no_result() {
-    let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
-    ]);
-    let d = FakeDeps::new(ns)
-        .stage(staged_children(vec![], Value::Null))
-        .ledger(vec![json!({ "id": "i0", "badge": "o" })]);
-    let r = tick(&d);
-    assert_eq!(r["ok"], false);
-    assert!(r["message"].as_str().unwrap().contains("audit 결과 없음"));
-    assert_eq!(d.c().edit.len(), 0);
-}
-
-#[test]
 fn reconcile_tick_materialize_fail_rejects_before_stage() {
     let ns = nodes(vec![
-        json!({ "id": "audit", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"audit\"}" }),
+        json!({ "id": "st", "kind": "task", "status": "todo", "blockedBy": [], "parentId": "chunk", "body": "{\"stage\":\"research\"}" }),
     ]);
     let d = FakeDeps::new(ns)
         .stage(staged_children(
@@ -1275,7 +1367,7 @@ fn reconcile_tick_materialize_fail_rejects_before_stage() {
     assert!(r["message"]
         .as_str()
         .unwrap()
-        .contains("원장 materialize 실패(audit)"));
+        .contains("원장 materialize 실패(research)"));
     assert_eq!(d.c().stage.len(), 0);
 }
 

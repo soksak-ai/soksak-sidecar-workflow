@@ -791,6 +791,10 @@ fn build_event(
             .get("isDraft")
             .map(|v| scope.eval(v) == Json::Bool(true))
             .unwrap_or(false),
+        collapsed: node
+            .get("collapsed")
+            .map(|v| scope.eval(v) == Json::Bool(true))
+            .unwrap_or(false),
         parent_draft_id: s("parentDraftId"),
         // 라우팅 tier — s() 가 빈 문자열("or":"" 폴백)을 None 으로 걸러 미emit=기본 최고 보존.
         effort: s("effort"),
@@ -1596,8 +1600,154 @@ mod tests {
         assert_eq!(br, json!({ "file": "src/inventory/deduct.ts" }));
     }
 
-    /// [번들 정본] 확정 문서 규약 — review 는 changes[] 를 낸다. changes 비면 다음 스테이지(수렴), 있으면
-    /// 자기재발행. {{document}} 로 items(history 포함) JSON 을 읽는다. draft-review·research-audit·design-audit 동형.
+    /// [번들 정본] DRAFT collapse — 스켈레톤은 chunk + Spec 섹션(collapsed) + 단일 자기-루프 op 만
+    /// 발행하고, 스테이지 그래프(generate/classify/audit)는 존재하지 않는다. Spec 섹션의 collapsed 는
+    /// NodeEvent wire 를 타고 살아남아야 한다 — 여기서 떨어지면 보드에 접힌 섹션이 안 생긴다(무성 결함).
+    #[test]
+    fn bundled_draft_skeleton_is_chunk_spec_and_single_loop_op() {
+        let draft: Json =
+            serde_json::from_str(include_str!("../workflows/draft.doc.json")).unwrap();
+        let stage_names: Vec<&str> = draft["stages"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        assert_eq!(
+            stage_names,
+            vec!["", "draft-review"],
+            "DRAFT 는 스켈레톤 + 단일 op 뿐 — generate/classify/audit 소멸"
+        );
+        let (events, _) = run(
+            &draft,
+            "",
+            &json!({ "directive": "약국 재고" }),
+            &mut no_agent,
+        )
+        .unwrap();
+        assert_eq!(events.len(), 3, "chunk + Spec 섹션 + draft-review task");
+        let shape: Vec<(&str, &str, bool, Option<&str>)> = events
+            .iter()
+            .map(
+                |NodeEvent::Add {
+                     id,
+                     kind,
+                     collapsed,
+                     stage,
+                     ..
+                 }| (id.as_str(), kind.as_str(), *collapsed, stage.as_deref()),
+            )
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("chunk", "chunk", false, None),
+                ("spec", "section", true, None),
+                ("draft-review", "task", false, Some("draft-review")),
+            ],
+            "Spec 섹션은 collapsed 로 발행된다(wire 보존)"
+        );
+    }
+
+    /// [번들 정본·조립 검사] DRAFT 완전성(무경계) 계약이 **실제 조립된 문자열**에 도달했는지. raw
+    /// 템플릿이 아니라 {{COMMON}} 치환 후를 본다 — 주입 경로가 끊기면 "cast WIDE" 라고 적혀 있어도
+    /// 넓힐 재료(렌즈)가 없다. 완전성은 이 파이프라인의 산출물 자체다(사용자가 물을 줄 몰랐던 이면을
+    /// 대신 꺼낸다) — 유경계로 잘라내면 그 값어치가 파괴된다.
+    #[test]
+    fn assembled_draft_prompt_optimizes_for_completeness() {
+        let draft: Json =
+            serde_json::from_str(include_str!("../workflows/draft.doc.json")).unwrap();
+        let args = json!({ "directive": "d", "chunkRef": "chunk", "ledger": [], "round": 1 });
+        let mut seen = String::new();
+        {
+            let mut cap = |p: &str, _s: Option<&Json>, _l: &str| {
+                seen.push_str(p);
+                Ok(json!({ "requirements": [], "removed": [] }))
+            };
+            run(&draft, "draft-review", &args, &mut cap).unwrap();
+        }
+        let must = [
+            // (a) 델타가 아니라 전체집합을 산출하라 — 드립이 구조적으로 불가능해진다.
+            (
+                "producing the complete requirement set",
+                "전체집합 산출 지시",
+            ),
+            ("you describe the SET", "델타 아님 명시"),
+            // (b) 빈 집합 라운드 = 전체 스펙 생성 + 관대한(무경계) 발굴.
+            ("WHEN THE CURRENT SET IS EMPTY", "round-1 전면 생성"),
+            ("GENERATION IS GENEROUS", "관대한 생성"),
+            ("cast WIDE", "넓게 던져라"),
+            ("No cap, no stinginess", "무상한 생성"),
+            ("Generosity is SAFE", "관대함은 안전(루프가 가지친다)"),
+            // (c) 완전성의 근거 — 사용자가 물을 줄 몰랐던 이면을 대신 꺼내는 게 존재 이유.
+            (
+                "exists to draw out FOR them",
+                "이면 발굴이 파이프라인 존재 이유",
+            ),
+            // (d) 렌즈를 매 라운드 능동 발굴(게이트 아님).
+            ("Sweep the lenses every round", "능동 렌즈 sweep"),
+            // (e) 세 연산과 근거 의무 — 근거가 검증 기제 전부다.
+            ("IS THE VERIFICATION", "근거=검증 기제"),
+            (
+                "no exemption for the opening round",
+                "최초 라운드 근거 면제 없음",
+            ),
+            ("MUST BE ACCOUNTED FOR", "미언급 증발 금지"),
+            ("Silence is not a decision.", "침묵 금지"),
+            ("first-class, welcome operation", "change 는 정상 작업"),
+            ("cannot justify is not a revision", "근거 없는 재서술 억제"),
+            (
+                "directly refutes the removal reason",
+                "재추가는 제거사유 반박",
+            ),
+            // (f) 수렴은 구조(집합 동일)다.
+            ("CONVERGENCE IS STRUCTURAL", "수렴=구조적 판정"),
+            // (g) 생성 렌즈가 COMMON 주입으로 실제 도달했는가.
+            ("THE BACK-SIDE", "back-side 렌즈"),
+            ("THE ACTORS", "actor 렌즈"),
+            ("OPERATING SURFACES", "운영 표면 렌즈"),
+            ("LEGAL LENS", "법 렌즈"),
+            ("MAKE-OR-BREAK", "make-or-break 정의"),
+            ("CONCRETIZATION", "구체화 렌즈"),
+        ];
+        for (needle, why) in must {
+            assert!(
+                seen.contains(needle),
+                "조립된 프롬프트에 {why} 없음({needle:?})"
+            );
+        }
+        // 유경계 정체성 프레이밍은 조립 결과에 없어야 한다 — 완전성(이면 발굴)을 죽이는 문구.
+        for banned in [
+            "DEFINES THE IDENTITY",
+            "REJECT GENERIC-COMPLETENESS COLONIZATION",
+            "identity test REJECTS it here",
+        ] {
+            assert!(
+                !seen.contains(banned),
+                "유경계 문구 잔존({banned:?}) — 완전성이 다시 잘려 있다"
+            );
+        }
+        // 스키마가 그 산출을 받을 수 있어야 한다.
+        let props = &draft["values"]["SPEC_SET_SCHEMA"]["properties"];
+        assert!(props["requirements"].is_object() && props["removed"].is_object());
+        let rem_req: Vec<&str> = props["removed"]["items"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|x| x.as_str())
+            .collect();
+        assert!(rem_req.contains(&"reason"), "제거 사유는 스키마 필수");
+        let origin_enum: Vec<&str> = props["requirements"]["items"]["properties"]["origin"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|x| x.as_str())
+            .collect();
+        assert_eq!(origin_enum, vec!["user", "agent"], "출처 축 유지");
+    }
+
+    /// [번들 정본] 확정 문서 규약 — research/design 의 review 는 changes[] 델타를 낸다. changes 비면 다음
+    /// 스테이지(수렴), 있으면 자기재발행. {{document}} 로 items(history 포함) JSON 을 읽는다.
     #[test]
     fn bundled_review_loop_changes_model() {
         let stages = |ev: &[NodeEvent]| {
@@ -1607,21 +1757,27 @@ mod tests {
         };
         let research: Json =
             serde_json::from_str(include_str!("../workflows/research.doc.json")).unwrap();
-        let draft: Json =
-            serde_json::from_str(include_str!("../workflows/draft.doc.json")).unwrap();
-        for (doc, stage, onconv) in [
-            (&research, "research-audit", "design-interface"),
-            (&research, "design-audit", "plan"),
-            (&draft, "draft-review", "classify"),
+        // DRAFT 는 이 계약 밖이다 — 델타(changes[])가 아니라 전체집합을 산출한다(아래 whole-set 계약 테스트).
+        // marker = 그 doc 의 리뷰어 역할 표지.
+        for (doc, stage, onconv, marker) in [
+            (
+                &research,
+                "research-audit",
+                Some("design-interface"),
+                "CONSENSUS REVIEWER",
+            ),
+            (
+                &research,
+                "design-audit",
+                Some("plan"),
+                "CONSENSUS REVIEWER",
+            ),
         ] {
             let args = json!({ "directive": "d", "chunkRef": "chunk",
                 "ledger": [{ "id": "x0", "state": "o", "title": "t", "description": "", "history": [] }] });
             // changes 비면 → onConverge 수렴, 자기재발행 없음. {{document}} 가 items JSON 렌더.
             let mut empty = |p: &str, _s: Option<&Json>, _l: &str| {
-                assert!(
-                    p.contains("CONSENSUS REVIEWER"),
-                    "{stage}: reviewer 프롬프트"
-                );
+                assert!(p.contains(marker), "{stage}: reviewer 프롬프트");
                 assert!(
                     p.contains("\"x0\""),
                     "{stage}: document 가 items JSON 렌더: {p}"
@@ -1629,11 +1785,19 @@ mod tests {
                 Ok(json!({ "changes": [] }))
             };
             let (e, ret) = run(doc, stage, &args, &mut empty).unwrap();
-            assert!(
-                stages(&e).iter().any(|x| x == onconv),
-                "{stage}: changes 0 → {onconv} 수렴: {:?}",
-                stages(&e)
-            );
+            match onconv {
+                Some(next) => assert!(
+                    stages(&e).iter().any(|x| x == next),
+                    "{stage}: changes 0 → {next} 수렴: {:?}",
+                    stages(&e)
+                ),
+                // 수렴 = 정지. 후속 스테이지를 발행하지 않는 것 자체가 인증이다.
+                None => assert!(
+                    stages(&e).is_empty(),
+                    "{stage}: 수렴이면 아무것도 발행하지 않는다(정지): {:?}",
+                    stages(&e)
+                ),
+            }
             assert!(
                 !stages(&e).iter().any(|x| x == stage),
                 "{stage}: 수렴이면 자기재발행 없음"
@@ -1652,29 +1816,34 @@ mod tests {
                 "{stage}: changes 있으면 자기재발행: {:?}",
                 stages(&e2)
             );
-            assert!(
-                !stages(&e2).iter().any(|x| x == onconv),
-                "{stage}: 이견 있으면 진행 금지"
-            );
+            if let Some(next) = onconv {
+                assert!(
+                    !stages(&e2).iter().any(|x| x == next),
+                    "{stage}: 이견 있으면 진행 금지"
+                );
+            }
         }
     }
 
     /// [정공법] 검색은 자기판단 트리거(GROUNDING: 메모리로 틀릴 수 있으면 검색, 확실하면 reason) — 강제 아님.
-    /// 두 결함을 막는다: (1) gen 이 "You cannot search here" 로 첫 턴 검색을 금지하면 GROUNDING 분기가 gen 에서
-    /// 죽어 법정·심층 make-or-break 가 뒤 라운드로 밀린다. (2) GROUNDING 이 검색을 특정 도구명(native WebSearch)으로
+    /// 두 결함을 막는다: (1) 단일 op 가 "You cannot search here" 로 첫 라운드 검색을 금지하면 GROUNDING 분기가
+    /// 거기서 죽어 법정·심층 make-or-break 가 뒤 라운드로 밀린다. (2) GROUNDING 이 검색을 특정 도구명(native WebSearch)으로
     /// 지목하면, native WebSearch 가 차단된 provider(z.ai/glm — mcp 검색만 있음)에서 분기가 "검색"으로 판정해도
     /// 지목 도구가 없어 실행 불가(실측: glm 이 격리 프로브에서 행위 지시엔 스스로 검색, 도구명 지시엔 무검색).
     /// 프롬프트는 도구명이 아니라 행위(search the web)로 지시하고, 런타임이 실제 도구를 배선한다.
     #[test]
-    fn gen_first_turn_grounds_by_search() {
+    fn first_round_grounds_by_search() {
         let draft_raw = include_str!("../workflows/draft.doc.json");
         let research_raw = include_str!("../workflows/research.doc.json");
         let draft: Json = serde_json::from_str(draft_raw).unwrap();
-        let gen = draft["prompts"]["gen"].as_str().expect("gen prompt");
+        // 첫 턴 = 단일 op 의 round 1(옛 gen). 같은 프롬프트가 생성과 검토를 겸한다.
+        let gen = draft["prompts"]["draft-review"]
+            .as_str()
+            .expect("draft-review prompt");
         let common = draft["values"]["COMMON"].as_str().expect("COMMON");
         assert!(
             !gen.contains("cannot search"),
-            "gen 이 검색을 금지한다 — 첫 턴에서 GROUNDING 분기가 죽는다"
+            "단일 op 가 검색을 금지한다 — 첫 라운드에서 GROUNDING 분기가 죽는다"
         );
         // 검색은 도구명(native WebSearch — z.ai/glm 에 없음)이 아니라 행위로 지시한다. 두 번들 doc 전체에서
         // WebSearch 도구명이 살아있으면 그 도구 없는 provider(glm)에서 검색분기가 판정해도 실행 불가.
@@ -1706,16 +1875,15 @@ mod tests {
             include_str!("../workflows/research.doc.json"),
         ] {
             let d: Json = serde_json::from_str(raw).unwrap();
-            let req: Vec<&str> = d["values"]["VERIFY_SCHEMA"]["required"]
-                .as_array()
-                .expect("VERIFY_SCHEMA.required")
-                .iter()
-                .filter_map(|x| x.as_str())
-                .collect();
-            assert!(
-                req.contains(&"reason"),
-                "VERIFY_SCHEMA 가 reason 을 강제하지 않는다 — 증거 없는 판정 통과"
-            );
+            // per-item 검증이 남은 doc(research fact)만 VERIFY_SCHEMA 를 지닌다. DRAFT 는 격리검증을
+            // 없앴으므로 스키마 자체가 없다 — 있으면 reason 을 강제해야 한다.
+            if let Some(req) = d["values"]["VERIFY_SCHEMA"]["required"].as_array() {
+                let req: Vec<&str> = req.iter().filter_map(|x| x.as_str()).collect();
+                assert!(
+                    req.contains(&"reason"),
+                    "VERIFY_SCHEMA 가 reason 을 강제하지 않는다 — 증거 없는 판정 통과"
+                );
+            }
         }
         let draft: Json =
             serde_json::from_str(include_str!("../workflows/draft.doc.json")).unwrap();
@@ -1723,8 +1891,8 @@ mod tests {
             .as_str()
             .expect("draft-review prompt");
         assert!(
-            dr.contains("name the specific item id"),
-            "draft-review reason 이 대상 id 인용을 요구하지 않는다 — 근거가 우연에 의존"
+            dr.contains("IS THE VERIFICATION"),
+            "draft 는 근거가 곧 검증 기제임을 명시해야 한다 — 근거가 장식으로 전락"
         );
     }
 

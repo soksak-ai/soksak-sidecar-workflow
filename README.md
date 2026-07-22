@@ -24,7 +24,7 @@ the JS execution-ledger half (issue lease/receipt/gate/drift).
 `soksak-sidecar-workflow --handshake` reports the unit and domain interface without
 starting a provider. `soksak-sidecar-workflow serve` starts the public
 `soksak-spec-service` NDJSON protocol. Standalone `exec-one`, `exec-stage`, `synth`,
-`build-ledger`, and `validate-draft` commands are deterministic entry points around the
+`build-ledger`, and `draft-run` commands are deterministic entry points around the
 same implementation.
 
 See [INTERFACE.md](INTERFACE.md) for the exact contract.

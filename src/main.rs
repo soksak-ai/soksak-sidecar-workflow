@@ -78,6 +78,7 @@ fn real_main() -> Result<(), String> {
         eprintln!("  soksak-sidecar-workflow generate-skeleton --idea \"...\" [--model m] [--lang ko] [--gen-out p] [--refs dir]    # 아이디어 → workflow-doc(LLM 저작·검증) JSON stdout");
         eprintln!("  soksak-sidecar-workflow exec-one [--lang ko] [--model m] [--allow-tools \"...\"]                                # stdin {{prompt,schema?}} 한 노드 실행 → {{oxf,result}}");
         eprintln!("  soksak-sidecar-workflow exec-stage [--lang ko] [--model m]                                                    # stdin {{skeleton,stage,args}} stage 실행 → 자식 {{ev:add}} + {{ev:result}}");
+        eprintln!("  soksak-sidecar-workflow draft-run --idea \"...\" [--lang ko] [--model m] [--dump p]                                        # 앱/보드 없이 DRAFT 흐름 완주(인메모리 보드+실 provider; 인증 env 필수)");
         eprintln!("  soksak-sidecar-workflow synth --idea \"...\"                                                                    # ③파생 도메인 지시어");
         eprintln!("  --lang: 출력 언어 계약. 모든 agent 프롬프트에 주입 → 산출물이 그 언어로. args.lang 도 주입.");
         return Ok(());
@@ -116,7 +117,7 @@ fn real_main() -> Result<(), String> {
 
     // exec-stage — stage 작업 실행(동적 발행). stdin {workflow|skeleton(doc), stage, args:{directive, chunkRef, ledger…}}
     // → doc_interp 로 stage 실행(agent=claude, publish=NodeEvent) → 자식 {ev:add} JSON line + 최종 {ev:result}
-    // (generate 는 DraftDoc 1문서). 서비스 reconcile 이 kind=task 노드를 이 경로로 실행해 항목/fact 동적 발행.
+    // 서비스 reconcile 이 kind=task 노드를 이 경로로 실행해 항목/fact 를 동적 발행한다.
     if argv[0] == "exec-stage" {
         return run_exec_stage(&argv);
     }
@@ -126,12 +127,14 @@ fn real_main() -> Result<(), String> {
     if argv[0] == "generate-skeleton" {
         return run_generate_skeleton(&argv);
     }
-    // build-ledger·validate-draft — reconcile 순수 로직을 노출하는 LLM 없는 CLI 경계.
+    // draft-run — 앱/보드 없이 DRAFT 흐름을 in-process 로 끝까지(변경 0 수렴) 돌린다.
+    // idea → generate_skeleton(실 LLM) → 인메모리 보드 발행 → reconcile_tick 반복. 인증 env 필수.
+    if argv[0] == "draft-run" {
+        return run_draft_run(&argv);
+    }
+    // build-ledger — reconcile 순수 로직을 노출하는 LLM 없는 CLI 경계.
     if argv[0] == "build-ledger" {
         return run_build_ledger(&argv);
-    }
-    if argv[0] == "validate-draft" {
-        return run_validate_draft();
     }
 
     // --workflow <name> — 바이너리에 포함된 정본 워크플로를 이름으로 해석한다.
@@ -265,19 +268,6 @@ fn run_build_ledger(argv: &[String]) -> Result<(), String> {
         "{}",
         serde_json::to_string(&ledger).map_err(|e| e.to_string())?
     );
-    Ok(())
-}
-
-/// run_validate_draft — validate-draft 서브커맨드(LLM 0). stdin <draft-doc> → {violations:[...]}
-/// (빈 배열=유효). draft_doc::validate 의 CLI 미러 — 검증 로직 단일진실은 Rust.
-fn run_validate_draft() -> Result<(), String> {
-    use soksak_sidecar_workflow::draft_doc::{validate, DraftDoc};
-    let mut raw = String::new();
-    std::io::Read::read_to_string(&mut std::io::stdin(), &mut raw)
-        .map_err(|e| format!("read stdin: {e}"))?;
-    let doc: DraftDoc = serde_json::from_str(&raw).map_err(|e| format!("draft-doc 파싱: {e}"))?;
-    let violations = validate(&doc).err().unwrap_or_default();
-    println!("{}", json!({ "violations": violations }));
     Ok(())
 }
 
@@ -440,7 +430,7 @@ fn run_exec_stage(argv: &[String]) -> Result<(), String> {
 }
 
 /// run_exec_stage_doc — workflow-doc@0.0.1 stage 실행:
-/// generate = DraftDoc 1문서(build→validate→stdout, 위반=발행 거부) / 그 외 = {ev:add} 스트림 + {ev:result}.
+/// 산출 = {ev:add} 스트림 + {ev:result}(스테이지별 특수 포장 없음).
 fn run_exec_stage_doc(
     doc: &Value,
     stage: &str,
@@ -587,45 +577,22 @@ fn run_exec_stage_doc(
 }
 
 /// emit_stage_output — stage 실행 산출의 stdout 계약(정본 LLM 경로와 --with-output 재생이 공유).
-/// generate 는 DraftDoc build+validate(위반=거부) 1문서, 그 외는 NodeEvent 라인들+result 라인.
+/// NodeEvent 라인들 + result 라인. 스테이지별 특수 포장은 없다.
 fn emit_stage_output(
-    stage: &str,
+    _stage: &str,
     events: Vec<soksak_sidecar_workflow::node_event::NodeEvent>,
     result: Value,
 ) -> Result<(), String> {
-    if stage == "generate" {
-        let mut ddoc = soksak_sidecar_workflow::draft_doc::build(&events)?;
-        if let Some(Value::String(t)) = result.get("chunkTitle") {
-            if !t.is_empty() {
-                ddoc.chunk_title = Some(t.clone());
-            }
+    for ev in &events {
+        if let Ok(s) = serde_json::to_string(ev) {
+            println!("{s}");
         }
-        if let Err(violations) = soksak_sidecar_workflow::draft_doc::validate(&ddoc) {
-            eprintln!("[soksak] generate DraftDoc 검증 실패(발행 거부):");
-            for x in &violations {
-                eprintln!("  - {x}");
-            }
-            return Err(format!(
-                "generate DraftDoc 검증 실패({}건) — 발행 거부",
-                violations.len()
-            ));
-        }
-        println!(
-            "{}",
-            serde_json::to_string(&ddoc).map_err(|e| e.to_string())?
-        );
-    } else {
-        for ev in &events {
-            if let Ok(s) = serde_json::to_string(ev) {
-                println!("{s}");
-            }
-        }
-        let out = json!({ "ev": "result", "value": result });
-        println!(
-            "{}",
-            serde_json::to_string(&out).map_err(|e| e.to_string())?
-        );
     }
+    let out = json!({ "ev": "result", "value": result });
+    println!(
+        "{}",
+        serde_json::to_string(&out).map_err(|e| e.to_string())?
+    );
     Ok(())
 }
 
@@ -689,6 +656,52 @@ fn check_required_keys(schema: &Value, value: &Value) -> Result<(), String> {
 /// run_generate_skeleton — generate-skeleton 서브커맨드. 아이디어 → workflow-doc@0.0.1(LLM 저작) → doc JSON stdout.
 /// system=SKILL+api+patterns+draft-skill(바이너리 포함, --refs 로 override 가능), user=아이디어+③파생.
 /// 저작 게이트 = JSON 파싱(parse_json_lenient — 펜스/prose 방어) + doc_interp::validate(fail-loud).
+// draft-run — idea → 인메모리 보드 DRAFT 흐름 완주. 실 provider 라 인증 env(ANTHROPIC_*/OAuth) 필수.
+fn run_draft_run(argv: &[String]) -> Result<(), String> {
+    let mut idea = String::new();
+    let mut model: Option<String> = None;
+    let mut lang = "ko".to_string();
+    let mut dump: Option<String> = None;
+    let mut i = 1;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--idea" => {
+                i += 1;
+                idea = argv.get(i).cloned().ok_or("--idea 값 누락")?;
+            }
+            "--model" => {
+                i += 1;
+                model = Some(argv.get(i).cloned().ok_or("--model 값 누락")?);
+            }
+            "--lang" => {
+                i += 1;
+                lang = argv.get(i).cloned().ok_or("--lang 값 누락")?;
+            }
+            "--dump" => {
+                i += 1;
+                dump = Some(argv.get(i).cloned().ok_or("--dump 값 누락")?);
+            }
+            other => return Err(format!("draft-run: 미지 인자 {other:?}")),
+        }
+        i += 1;
+    }
+    if idea.trim().is_empty() {
+        return Err("draft-run: --idea 필수".to_string());
+    }
+    // 내용이 산출물이다 — 라운드별 요건 전문을 사람이 읽는 마크다운으로 남긴다. 미지정이면 cwd/draft-run.spec.md.
+    let dump_path = dump.unwrap_or_else(|| "draft-run.spec.md".to_string());
+    let report = soksak_sidecar_workflow::wf_service::draft_run(
+        &idea,
+        model.as_deref(),
+        &lang,
+        Some(std::path::Path::new(&dump_path)),
+    )?;
+    // 로그는 drive() 가 틱마다 라이브로 흘렸다 — 완주 시점엔 요약 + 덤프 경로만 찍는다(중복 방지).
+    print!("{}", report.summary());
+    eprintln!("[soksak] 요건 집합 전문: {dump_path}");
+    Ok(())
+}
+
 fn run_generate_skeleton(argv: &[String]) -> Result<(), String> {
     let mut assemble = false; // --assemble: 정련 턴의 {prompt, schema} 패키지만(LLM 0)
     let mut with_refined: Option<Value> = None; // --with-refined: 외부 실행자의 정련 산출 주입(LLM 0)

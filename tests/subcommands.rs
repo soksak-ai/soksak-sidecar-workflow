@@ -1,6 +1,5 @@
-//! build-ledger·validate-draft 서브커맨드 통합 테스트 — app-0 러너(run-full-chain)가 소비하는
-//! CLI 미러. 로직 단일진실은 lib(reconcile::build_ledger·draft_doc::validate)이고 유닛이 그걸
-//! 덮는다 — 여기서는 stdin/stdout JSON 왕복(얇은 CLI 글루)만 프로세스 경계에서 고정한다.
+//! build-ledger 서브커맨드 통합 테스트 — 로직 단일진실은 lib(reconcile::build_ledger)이고 유닛이
+//! 그걸 덮는다 — 여기서는 stdin/stdout JSON 왕복(얇은 CLI 글루)만 프로세스 경계에서 고정한다.
 
 use serde_json::{json, Value};
 use std::io::Write;
@@ -52,24 +51,4 @@ fn build_ledger_mirrors_reconcile_ledger() {
     );
     let a = ledger.iter().find(|e| e["id"] == "a").unwrap();
     assert_eq!(a["badge"], "o", "badge 보존");
-}
-
-#[test]
-fn validate_draft_reports_no_violations_for_a_valid_doc() {
-    let doc = json!({
-        "kind": "draft-chunk",
-        "chunk_ref": "c1",
-        "verify_contract": { "template": "t", "directive": "d", "schema": {}, "initial_badge": "검수전" },
-        "requirements": [{ "id": "r1", "title": "T", "description": "D", "origin": "user", "badge": "검수전" }],
-        "tasks": []
-    })
-    .to_string();
-    let (ok, out) = run(&["validate-draft"], &doc);
-    assert!(ok, "validate-draft 성공");
-    let v: Value = serde_json::from_str(out.trim()).expect("violations JSON");
-    assert_eq!(
-        v["violations"].as_array().map(|a| a.len()),
-        Some(0),
-        "유효 doc → 위반 0: {out}"
-    );
 }

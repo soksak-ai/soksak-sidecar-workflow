@@ -2,7 +2,7 @@
   "spec": "workflow-doc@0.0.1",
   "meta": {
     "name": "draft",
-    "description": "DRAFT 워크플로 — 아이디어(directive)를 백로그 덩어리로 구체화. generate=요건 발굴·평탄 발행, 항목 검증=exec-one, 누락=hunt, 분류=classify(완성 집합), 완결 인증=audit."
+    "description": "DRAFT 워크플로 — 아이디어(directive)를 백로그 덩어리로 구체화. 단 하나의 자기-루프 op 가 매 라운드 **전체 집합**을 산출하고(델타 아님), 시스템이 add/change/remove 를 계산한다. 새로 산출한 전체가 기존 전체와 동일하면 수렴 = 인증. round-1 은 기존 집합이 ∅ 이라 자연히 전체 생성이 된다."
   },
   "args": {
     "directive": {
@@ -21,43 +21,27 @@
     }
   },
   "values": {
-    "PENDING": "검수전",
     "COMMON": "SHARED CONCEPTS:\n- A REQUIREMENT = an imperative the result must satisfy (\"the system/plan/novel/work must …\"): concrete and developable/executable — NOT a background fact, NOT a restatement of the directive, NOT a bare umbrella (\"manage/handle/support X\" that names no specific operation or obligation). (Form: not \"X regulations\" but \"the system must DO <Y> to satisfy <X>\".)\n- MAKE-OR-BREAK = its absence would make the result FAIL or be WRONG, not merely less polished. A genuine one is a DECISION two competent practitioners could resolve DIFFERENTLY — NOT a nice-to-have, NOT one methodology's enumerated beat-list, NOT the HOW / implementation-detail of another requirement (that is covered by its parent, not a separate requirement).\n- EXPERT STANCE: read THIS directive as the SENIOR PRACTITIONER of its real domain (a pharmacist / compliance officer for a drug system, a novelist for a novel, an expedition leader for a climb). An expert never stops at the CATEGORY — \"comply with the narcotics law\" / \"protect personal data\" is NOT a requirement; it HIDES the concrete obligations the law compels, each its own make-or-break (\"on a stock discrepancy, file the incident report to the authority within the statutory deadline\"; \"verify the vendor is a licensed wholesaler at registration\"). Name the SPECIFIC trigger / deadline / check whoever builds, writes, or executes it must satisfy — a distinct requirement an expert knows, never an implementation beat. (Likewise outside law: a novel — not \"a satisfying ending\" but the specific turn that earns it; a plan — not \"be safe\" but the specific abort threshold.) A broad \"support / comply with X\" topic HIDES the gap, it does not cover it.\n- THE BACK-SIDE: the requester is NOT a domain expert — they named the visible SURFACE (the easy 80%) and, even in a DETAILED directive, omit the make-or-break BACK-SIDE (the 20% that decides success) a senior practitioner / law / safety requires for the intent to actually work, be legal, be safe (the administrative, legal, financial, safety, contingency/failure-handling, oversight/who-administers substrate). DRAW IT OUT — adversarially ask of THIS intent: who actually OPERATES it, OVERSEES/administers it, PAYS FOR it, is kept SAFE/legal by it, and RECOVERS it when it fails or ends — and what does each REQUIRE that the requester never said? Don't be seduced by a polished, plausible surface: that polish IS the 80% trap. Then use the per-domain SHAPES below — the KIND to hunt; they COMPLEMENT the questions above (a minimal domain hint), never REPLACE them, and are NOT answers (search the real content; apply ONLY what genuinely fits THIS directive, never force a non-applicable category):\n    · SYSTEM → operator/admin console per permission grade & oversight, data model, regulation (the SPECIFIC reporting/incident triggers, deadlines, and qualifications the governing law compels — kinds to hunt, not answers), security boundaries, monitoring, lifecycle/offboarding.\n    · NOVEL → the avenger's corrosion, justice-vs-vengeance, antagonist depth, the delay engine, the payoff, the aftermath, POV/reveal-order, setting/world, reader complicity.\n    · PLAN → go/no-go gates, per-step verification, contingency/rollback, failure modes, legal/safety preconditions (the SPECIFIC approvals, clearances, and qualifications required before an act may proceed — kinds to hunt, not answers), responsibility, exit criteria.\n    · EVERYDAY (e.g. moving house) → registration, deposit/fee settlement, address changes, defect-check — not just the visible act.\n- THE ACTORS: a directive implies every actor the result touches, yet the requester writes as only one of them. The actors they never played still carry make-or-breaks. Every built thing has, without exception, both on-stage actors, who use the result, and off-stage actors, who run it — the parties that operate, moderate, deploy, and answer for it. The off-stage actors are part of the system itself, never an afterthought. In a web or SaaS service, the off-stage actor is the platform operator, who suspends violating tenants and enforces subscription entitlements. In a game, it is live-ops and moderation, who tune the economy, handle bans and appeals, and roll back incidents. In a desktop or mobile app, it is the deployer, who owns the update channel, triages crashes, and enforces licenses. In an internal system, it is the administrator, who provisions accounts, keeps the audit trail, and rehearses recovery. A third archetype the on-stage/off-stage split misses: EXTERNAL COUNTERPARTIES, who transact THROUGH the result from outside it — by domain, the vendor or supplier who fulfills what users request, the partner who integrates, the external reviewer who signs off — a SEPARATE PARTY with their own surface, not a permission grade of the users' app, their make-or-breaks as load-bearing as any user's. And every distinct actor the directive implies reaches the result through its OWN surface — draw those surfaces as requirements (OPERATING SURFACES below), not only the scattered capabilities behind them. Example requirements from an off-stage actor: \"the operator must be able to suspend a violating tenant and revoke its active sessions\"; \"when a subscription expires, the system must downgrade that tenant's entitlements automatically — the system enforces this, it is not left to good faith.\"\n- OPERATING SURFACES: capabilities are not yet a usable system — walk the OPERATING reality and draw the surfaces the result is actually RUN through, each its own requirement. A capability reachable only through a back-end service, with no surface any actor operates it through, is a MISSING requirement — the surface IS the requirement, not its implementation. Walk them by kind: how each actor is VERIFIABLY authenticated and bound to its role/grade for the session (authentication) — the foundation the whole permission model rests on: without a forgery-proof identity-to-role basis, every permission, access rule, and per-grade console is unenforceable and any caller can claim any role, so wherever roles/grades/permissions exist, authentication is a make-or-break, not an afterthought, how requests reach the capabilities at all (entrypoint / routing), the console each distinct actor and each permission-grade operates through (a per-grade admin console is its own deliverable, NOT implied by the permission model — \"can do X\" is not \"the screen where X is done\"), the screens that read the ledgers / evidence / audit records, what must run on a schedule (jobs / batch), and how the pieces boot and wire together. The test: if the assembled result could be BUILT but not OPERATED — no actor could actually DO the thing — a surface is missing, and that surface is the requirement. Necessity, not mention: draw only surfaces the result cannot be operated without; never pad with polish.\n- LEGAL LENS: wherever the intent's success turns on real-world LAW, RULE, or LEGITIMACY — to be COMPLIANT (a statutory duty it must satisfy), to be PERMITTED (an approval / license / qualification that gates an act or a participation), or to be ACCURATE (a work that portrays or relies on real law) — surface the binding obligations, approvals, triggers, and deadlines the real, current law actually compels, not just the functional surface (ground them by GROUNDING below). This is NOT only for regulated systems: a plan may need a clearance, a novel may need its law right. Apply ONLY where the intent genuinely turns on law; never force it onto one that does not.\n- GROUNDING (when to SEARCH vs REASON — the one rule for any fact you rely on): the real test is \"could you be WRONG from memory?\" — info beyond your knowledge cutoff (a recent event, the CURRENT status of a law/program/standard), OR the SPECIFICS of a named statute/article/standard/figure/framework you could misremember, OR genuine uncertainty → search the web (put the current year in queries; NEVER assert such specifics from memory). When an item rests on what you searched, CITE the grounded source in the item itself — the specific statute/article/standard/version with its identifier or link; a searched item that drops its source reads as an ungrounded guess and cannot be audited. A general principle or common design/craft choice you RELIABLY know → reason it; do NOT search what you reliably know (wasteful), and never re-search the settled.\n- COMMON-SENSE DEFAULT: where the directive leaves a gap or ambiguity, resolve it with the SIMPLEST answer common reasoning reaches — what most competent people would call obvious. Do NOT invent an unusual, elaborate, or restrictive mechanism (a quantity cap, an enforcement, a control) the directive never asked for; a plain reading beats a clever one. The unusual must come from the directive — never from you.\n- INVARIANTS — every requirement, whether GENERATED or ADDED: (1) ATOMIC — one subject, not bundled, not over-split; (2) NO DUPLICATE — not a restatement of another, judged by MEANING not wording (a narrower / re-angled / renamed / split version of an existing one is NOT new); (3) NO FORCING/FABRICATION — a genuine grounded make-or-break, never invented to seem thorough.",
-    "VERIFY_TMPL": {
-      "concat": [
-        {
-          "$": "values.COMMON"
-        },
-        "\n\nYOUR ROLE — REFUTER (adversarial). Your job is NOT to confirm this requirement — it is to REFUTE it. Attempt to prove it is NOT a real make-or-break: wrong, unnecessary, out-of-scope, a duty the directive disclaims, or a bare umbrella naming no specific operation/obligation.\n\nREQUIREMENT:\n- {{title}} — {{description}}\n\nPick the method by GROUNDING (SHARED CONCEPTS): could you be WRONG from memory → search the web for the specific and try to disprove (verified_value = fact + source); reliably know it → reason whether necessary AND sound.\nThen judge (field \"oxf\"):\n- Attempted to refute and COULD NOT — a real requirement → \"o\" + origin + verified_value + sources + reason.\n- Refuted it, OR UNCERTAIN whether it holds → \"x\" + reason. Reject-if-uncertain: a shaky requirement carried on is worse than a real one dropped (hunt's rotating lenses re-surface a load-bearing one). A minor legitimate off, not a failure.\n- Could not run the check (needed search errored/empty) → \"f\" + reason (retry, do not guess).\nFINAL message = ONLY this JSON."
-      ]
-    },
-    "GEN_SCHEMA": {
+    "SPEC_SET_SCHEMA": {
       "type": "object",
       "required": [
-        "title",
-        "requirements"
+        "requirements",
+        "removed"
       ],
       "properties": {
-        "title": {
-          "type": "string"
-        },
-        "titleOrigin": {
-          "type": "string",
-          "enum": [
-            "user",
-            "agent"
-          ]
-        },
         "requirements": {
           "type": "array",
           "items": {
             "type": "object",
             "required": [
               "title",
-              "description",
-              "origin"
+              "description"
             ],
             "properties": {
+              "id": {
+                "type": "string",
+                "description": "기존 항목이면 문서의 id 를 그대로. 신규면 비워라 — 없는 id 를 지어내면 계보가 위조된다."
+              },
               "title": {
                 "type": "string"
               },
@@ -71,117 +55,14 @@
                   "agent"
                 ]
               },
-              "effort": {
+              "reason": {
                 "type": "string",
-                "enum": [
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max"
-                ],
-                "description": "이 요건의 검증 난이도 tier(선택). 강한 신호 하나로 판정하고 평균으로 희석하지 마라 — 순수 기계적·되돌리기 쉬운 검증만 low/medium, 아키텍처·보안·프로덕션 위험이 걸린 검증은 high/max — 규제·법정 의무·불가역 데이터 무결성은 max. 애매하면 높게. 생략 시 최고. (routing-skill.md)"
+                "description": "신규 추가·문구 개정·재추가일 때 필수. 원문 그대로 유지하는 항목만 생략한다(추가 시점 근거를 id 로 승계)."
               }
             }
           }
-        }
-      }
-    },
-    "CLASSIFY_SCHEMA": {
-      "type": "object",
-      "required": [
-        "dimension",
-        "assignments"
-      ],
-      "properties": {
-        "dimension": {
-          "type": "string"
         },
-        "assignments": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "id",
-              "category"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "category": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    },
-    "VERIFY_SCHEMA": {
-      "type": "object",
-      "required": [
-        "oxf",
-        "origin",
-        "reason"
-      ],
-      "properties": {
-        "oxf": {
-          "type": "string",
-          "enum": [
-            "o",
-            "x",
-            "f"
-          ]
-        },
-        "origin": {
-          "type": "string",
-          "enum": [
-            "user",
-            "agent",
-            "search"
-          ]
-        },
-        "verified_value": {
-          "type": "string"
-        },
-        "sources": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "reason": {
-          "type": "string"
-        }
-      }
-    },
-    "AUDIT_SCHEMA": {
-      "type": "object",
-      "required": [
-        "complete",
-        "verdict",
-        "gaps"
-      ],
-      "properties": {
-        "complete": {
-          "type": "boolean"
-        },
-        "gaps": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "contradictions": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "sufficiency": {
-          "type": "string"
-        },
-        "removals": {
+        "removed": {
           "type": "array",
           "items": {
             "type": "object",
@@ -199,57 +80,14 @@
             }
           }
         },
-        "verdict": {
+        "chunkTitle": {
           "type": "string"
-        }
-      }
-    },
-    "CHANGES_SCHEMA": {
-      "type": "object",
-      "required": [
-        "changes"
-      ],
-      "properties": {
-        "changes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "op",
-              "reason"
-            ],
-            "properties": {
-              "op": {
-                "type": "string",
-                "enum": [
-                  "add",
-                  "remove",
-                  "reraise"
-                ]
-              },
-              "id": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "reason": {
-                "type": "string"
-              }
-            }
-          }
         }
       }
     }
   },
   "prompts": {
-    "gen": "{{COMMON}}\n\nYOUR ROLE — GENERATOR: turn the directive into a BACKLOG CHUNK (덩어리) — a title for the whole + the full FLAT set of REQUIREMENTS. **You do NOT classify.** Categorization is a LATER review step (classify), run after the set is complete; here you only DISCOVER.\n\n1) CHUNK TITLE: if the directive states or clearly implies a name for the whole, EXTRACT it (titleOrigin \"user\"); else GENERATE a short faithful title from its real intent (titleOrigin \"agent\"). One short noun phrase in the directive's language — the name a practitioner files this backlog under.\n2) REQUIREMENTS — **INTERPRET, do NOT echo.** Read the directive's real intent; never pass surface phrasing through verbatim. A terse directive bundles several DISTINCT requirements in one run-on clause — split each into its OWN atomic item (title = the imperative requirement in 입력 언어, description = one line of what it must do and why it is make-or-break, never a restatement of the title). ATOMIC: split bundled DISTINCT requirements; never split ONE requirement into its implementation beats. DECIDE, do NOT defer — a requirement STATES a concrete rule the build must satisfy, never a mandate to decide it later. FORBIDDEN: 'define whether X or Y', 'determine the policy for Z', 'decide when to …' — these leave the make-or-break decision OPEN and are not requirements. Where the directive leaves a choice open, MAKE the call and state it as the rule (not 'define whether an unapproved edit is held or applied' but 'an unapproved edit does not change the baseline stock'). A requirement whose content is 'a decision will be made' is a deferral; state the decision itself.\n   **GENERATION IS GENEROUS — cast WIDE.** Include EVERY plausible make-or-break (content, structural/craft, operational, regulated, the back-side, and every actor — on-stage users, external counterparties who transact through it, and above all the off-stage actor who runs the result, a part the requester has never played — each drawn through its OWN named surface, not only its scattered functions). AND every DATA ENTITY the result stores, counts, or edits (each noun the directive treats as kept or managed — not only the ones whose creation it spells out) needs its OWN create / enter / edit / list surface: a rule ABOUT an entity (its constraint, its price, its identity, how it is classified) is NOT the surface that CREATES and maintains that entity. These entity-entry surfaces — above all the CENTRAL entity every other requirement revolves around — are the MOST-MISSED requirements, dropped because they seem too obvious to state; yet the result cannot be operated without them, and an entity's own registration/entry screen is owed as much as any flow or rule. Generosity is SAFE: the per-item verifier grounds each and rejects (x) any that does not hold — better to slightly OVER-include than to miss one. No cap, no stinginess; this set must be COMPLETE. Obey the INVARIANTS. origin = \"user\" if the directive states/implies it, \"agent\" if you derive it as a make-or-break the directive never stated. The GROUNDING branch (above) applies here as in any round — do not defer it to a later round; where its condition fires (a law/version/standard specific you could be wrong about from memory), ground it NOW rather than leaving it for a later round to open. There is NO optional tier — a nice-to-have is NOT a requirement.\n   **DO NOT group, do NOT invent a category dimension, do NOT prune to fit a frame.** Pre-classifying prunes topics outside the frame and breaks completeness — emit requirements[] FLAT. The classify step (after hunt completes the set) invents the dimension and assigns categories then.\n\nDirective: \"{{directive}}\"",
-    "classify": "{{COMMON}}\n\nYOUR ROLE — CLASSIFIER (검토·분류). 생성·누락탐색이 끝났다 — 아래 원장이 **완성된 전체 요건**이다. 새 요건을 만들지 마라(그건 hunt 몫). 전체를 senior practitioner 로서 읽고, 이 도메인에 맞는 분류 차원 하나를 INVENT 한 뒤, 모든 요건을 정확히 한 카테고리로 배정한다.\n  - DIMENSION: 이 도메인에 맞는 차원 하나를 발명(a system: 기능 영역; a novel: 막/장; a plan: 국면; a climb: 구간 — 고정 분류법 금지, directive 와 실제 요건들에서 도출). **집합이 이미 완성됐으니(hunt 후) 프레임 밖 토픽이 잘릴 위험이 없다 — 그래서 생성이 아니라 여기서 분류한다.**\n  - ASSIGN: 원장의 모든 항목을 그 차원의 카테고리로. assignments[] 각 원소 = {id(원장 줄 맨 앞 [id]), category}. 모든 id 를 정확히 한 번씩, 정확히 한 카테고리로. category 는 짧은 명사구(입력 언어). 카테고리 수는 집합이 정하게 — 억지로 늘리거나 줄이지 마라.\n\n완성된 전체 원장(각 줄 맨 앞 [id] 로 배정):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nFINAL message = ONLY this JSON.",
-    "audit": "{{COMMON}}\n\nYOUR ROLE — AUDITOR (the backlog chunk's parent certification). The per-item badges are already set. Your job is NOT to re-judge items one by one — CERTIFY THE WHOLE ASSEMBLED SET (부품 아닌 전체): does this set, taken together, deliver the directive's goal completely and coherently? Judge four axes, give ONE verdict:\n  - 누락 (gaps): any make-or-break MISSING that the goal cannot stand without? List each (empty if none).\n  - 모순 (contradictions): any two requirements conflict so a builder is blocked until one is overruled? List each (empty if none).\n  - 충분 (sufficiency): assembled, does the set REACH the goal — not just cover the surface? State plainly whether it suffices and why.\n  - 운영 견고성 (operational robustness): 조립된 set 이 실제 운영을 견디나 — 동일 상태에 대한 동시/충돌 입력의 승자·불일치 조정, 규모에서의 findability(다수 중 하나 찾기), 의존 단계 부분실패의 폴백, 역할→보호동작 경계가 요건에 있나? happy-path·demo 규모·전부 성공 가정에만 서면 미완. 빠진 것 나열(empty if none).\nSet complete=true ONLY if no goal-breaking gaps, no unresolved contradictions, and the set genuinely suffices. verdict = one paragraph: what the assembled draft achieves and the single most important thing still missing or wrong (or \"완결\" if none). Do NOT pad. Stay inside the directive's stated scope.\n\ngaps is ALWAYS present: empty array when complete=true, one entry per missing make-or-break when false. A complete=false verdict REQUIRES gaps: every missing make-or-break becomes its own gaps entry — one line, the requirement the set lacks. Prose that describes the lack while leaving gaps empty is a broken deliverable; the correction loop can only act on gaps entries, never on prose.\n\nREMOVE (removals) — self-correction, not only addition: the loop must also eject what should not be there, or a human has to delete it by hand. Scan the ledger for items that are refuted/wrong, redundant with another item, or outside the directive's stated scope. Each such item = one removals entry {\"id\": the exact ledger id, \"reason\": why it goes}. Do NOT remove an item because it is small or you would word it differently — remove ONLY wrong/redundant/out-of-scope. Items already badged x were removed in a prior round (reason shown in the ledger) — do NOT re-flag them and do NOT re-add them as gaps. removals is ALWAYS present: empty array when nothing currently in the set is wrong. Consensus = a round with no gaps AND no removals.\n\nFull ledger (CERTIFY this whole):\n{{ledger}}\n\nDirective: \"{{directive}}\"\n\nDo any needed search first. FINAL message = ONLY this JSON.",
-    "draft-review": "{{COMMON}}\n\nYOUR ROLE — CONSENSUS REVIEWER (완전성 합의 루프, round {{round}} of max 20).\n\nYou are given a DOCUMENT: a JSON list of items, each with a `state` (o=accepted, x=removed) and a full decision `history` (add/remove/reraise, each with its reason). Deliberate against it and output CHANGES; the loop repeats until a round makes no change (consensus).\n\nTHE DOCUMENT (items with history):\n{{document}}\n\nDirective: \"{{directive}}\"\n\nDELIBERATE over the requirements, then output changes[]:\n- ADD (op:add, title, description, reason) — every make-or-break still MISSING. Lenses: goal-reach · contradiction · seam(경계 소유) · depth(regulated → the SPECIFIC obligation) · domain-failure(what breaks in real use) · actor-sweep(every actor incl. the off-stage operator, each with its OWN named surface) · operational robustness(concurrency·scale/findability·partial failure·role boundary) · INPUT/ENTITY-CRUD(every stored data entity needs create/enter/edit/list; the central entity's registration is the most-missed — too obvious to state). CONCRETIZATION (mention is not completeness) — for every distinctive thing the directive spells out (an unusual unit, a special-case rule, a non-default value, an exception), check it is OPERATIONALIZED, not merely named as an attribute. If the directive says a value 'can be set to 1/12', capturing 'a unit field' is HALF — that value ripples into every operation it touches (counting, deduction, display, reconciliation, validation), and those must be present too. The small, obvious-looking rules the directive bothered to specify carry the biggest ripples. A named-but-unrealized mechanic is a gap to fill, not a covered requirement. BIAS TOWARD COMPLETENESS: when borderline load-bearing, ADD it — over-reach is corrected by a later remove; a gap left out may never be found (allowing borderline adds is what gives the loop something to prune).\n- REMOVE (op:remove, id, reason) — any accepted [o] item that is refuted/wrong, redundant with another BY MEANING, or outside the directive's scope. State why in reason.\n- RERAISE (op:reraise, id, reason) — a removed [x] item may be brought back ONLY with a reason that directly COUNTERS the reason it was removed (in its history). Re-raising on already-countered grounds is oscillation — forbidden.\n\nEVERY change MUST carry its reason (근거) — it is appended to the item's history; for a remove or reraise, the reason MUST name the specific item id(s) it turns on and the concrete defect (or counter), never a bare assertion — a change that cites nothing is not auditable. CONVERGENCE DISCIPLINE: this round must FINISH it — surface EVERY remaining change at once, do not dribble one or two per round; if you are past round 1, prior rounds left gaps, close them ALL now. If the NEXT round still changes what you touched, you mis-judged. When the set is complete and correct, output an EMPTY changes array — that is consensus. Do any needed search first.\n\nFINAL message = ONLY {\"changes\":[...]}."
+    "draft-review": "{{COMMON}}\n\nYOUR ROLE — THE DRAFT LOOP'S SINGLE OPERATION (round {{round}} of max 20). You are not editing a document; you are **producing the complete requirement set as it should stand right now**. Read the whole current set with its history, then emit the FULL set you believe is correct — every requirement that belongs, not just what you would change. The system computes the delta by comparing your set to the previous one, so you never describe changes; you describe the SET.\n\nTHE CURRENT SET — each item with its id, state (o=in the set, x=removed but retained), and full decision history (every add / change / remove with its 근거, in order):\n{{document}}\n\nDirective: \"{{directive}}\"\n\nOUTPUT — `requirements[]` (the complete set) and `removed[]` (what you deliberately take out):\n- **Keep** an existing requirement by listing it with **its exact id and its text unchanged**. Do not re-word what you are not deliberately revising — a needless rewrite is churn, and its 근거 already lives in the item's history, carried forward by id.\n- **Add** a requirement by listing it with **no id** and a `reason` — the 근거 that justifies it, plus `origin` (`\"user\"` if the directive states or clearly implies it, `\"agent\"` if you derived it as a make-or-break the directive never stated).\n- **Change** a requirement by listing it with **its id and revised text plus a `reason`**. Revising is a first-class, welcome operation — a spec is not frozen once written; if a sentence is ambiguous, mis-scoped, or has the wrong context, FIX IT and say why. The id and its whole history are preserved, so the record shows how the wording arrived where it did. But revise only when meaning or clarity genuinely improves: **a rewrite you cannot justify is not a revision, it is noise** — and worse, if you re-word the same idea every round the set never stabilizes and this loop can never converge.\n- **Remove** a requirement by putting it in `removed[]` with its id and a `reason`. It is not deleted — it stays on the board as `x` with its history, so \"why it went\" is never lost.\n- **Re-add** something previously removed by listing it in `requirements[]` with its id and a `reason` that **directly refutes the removal reason recorded in its history**. Its trail becomes add → remove → add. Re-adding on grounds already answered is oscillation — do not.\n\n**EVERY EXISTING ITEM MUST BE ACCOUNTED FOR — kept, changed, or in `removed[]`.** An item you simply omit is not a removal; it is a requirement vanishing with nobody having decided anything, and the system rejects the whole round for it. Silence is not a decision.\n\n**근거 IS THE VERIFICATION.** There is no separate per-item verification pass and no audit stage in this design: the reason you attach when adding, changing, or removing IS that item's verification record, and it is appended to its history permanently. An item added without a real ground is indistinguishable from a fabrication. So every add, change, and remove carries its 근거 — including every single item of the first round, where the set is built from nothing and therefore everything is an add. There is no exemption for the opening round.\n\n**WHEN THE CURRENT SET IS EMPTY, THIS ROUND PRODUCES THE ENTIRE SPEC.** Nothing exists yet, so the set you emit is the whole requirement set for this directive — not a seed, not a skeleton, not the obvious few. **GENERATION IS GENEROUS — cast WIDE.** Include EVERY plausible make-or-break: content, structural/craft, operational, regulated, the back-side, and every actor — on-stage users, external counterparties who transact through it, and above all the off-stage actor who RUNS the result, a part the requester has never played — each drawn through its OWN named surface, not only its scattered functions. The requester CANNOT ask for what they do not know they need — the back-side they never see (crash recovery, security boundaries, AI-execution permission, audit, support operation) is exactly what this pipeline exists to draw out FOR them; it is the product, not padding. AND every DATA ENTITY the result stores, counts, or edits (each noun the directive treats as kept or managed) needs its OWN create / enter / edit / list surface; the CENTRAL entity every other requirement revolves around is the MOST-MISSED requirement of all, dropped because it seems too obvious to state. **No cap, no stinginess; this set must be COMPLETE.** Generosity is SAFE precisely because this same loop prunes — a later round REMOVES whatever does not hold, so over-including costs one remove, while a gap left out may never be found at all. For any real system a handful of requirements is not a set, it is a sample. Also return `chunkTitle` on this round: extract the name the directive states or implies, else generate a short faithful noun phrase in its language.\n\nWrite each requirement as an imperative the result must satisfy; description = one line of what it must do and why it is make-or-break, never a restatement of the title. **INTERPRET, do NOT echo** the directive; a terse clause bundles several DISTINCT requirements — split each into its own atomic item, but never split ONE requirement into implementation beats. **DECIDE, do NOT defer**: FORBIDDEN are 'define whether X or Y', 'determine the policy for Z', 'decide when to …' — where the directive leaves a choice open, MAKE the call and state it as the rule. Sweep the lenses every round: goal-reach · contradiction · seam(경계 소유) · depth(regulated → the SPECIFIC obligation, deadline, trigger) · domain-failure(what breaks in real use) · actor-sweep · operational robustness(concurrency · scale/findability · partial failure · role boundary) · ENTITY-CRUD · CONCRETIZATION (for every distinctive thing the directive spells out — an unusual unit, a special-case rule, a non-default value, an exception — check it is OPERATIONALIZED, not merely named: that value ripples into counting, deduction, display, reconciliation, validation, and those must be present too). Obey the INVARIANTS (atomic · no duplicate by meaning · no fabrication). The GROUNDING branch applies in EVERY round including the first — where its condition fires, search and cite NOW. Do any needed search first.\n\nCONVERGENCE IS STRUCTURAL, NOT A DECLARATION: when the set you produce is identical to the set you were given — nothing added, nothing changed, nothing removed — the loop has converged and that identity IS the certification of this backlog. So emit everything you can justify in THIS round; holding a change back only delays the same work and, if you tire before finishing, certifies a set you never actually completed.\n\nFINAL message = ONLY {\"requirements\":[...],\"removed\":[...]} (plus `chunkTitle` on the first round)."
   },
   "stages": {
     "": [
@@ -275,81 +113,12 @@
       {
         "op": "publish",
         "node": {
-          "id": "gen",
-          "kind": "task",
-          "stage": "generate",
+          "id": "spec",
+          "kind": "section",
           "parent": "chunk",
-          "title": "요건 도출"
+          "title": "Spec",
+          "collapsed": true
         }
-      }
-    ],
-    "generate": [
-      {
-        "op": "agent",
-        "prompt": "gen",
-        "schema": "GEN_SCHEMA",
-        "label": "요건 도출",
-        "bind": "tree"
-      },
-      {
-        "op": "forEach",
-        "in": "tree.requirements",
-        "when": "item.title",
-        "collect": "itemIds",
-        "do": [
-          {
-            "op": "publish",
-            "node": {
-              "id": {
-                "auto": "i"
-              },
-              "kind": "item",
-              "parent": {
-                "$": "args.chunkRef",
-                "or": "chunk"
-              },
-              "title": {
-                "$": "item.title"
-              },
-              "description": {
-                "$": "item.description",
-                "or": ""
-              },
-              "origin": {
-                "$": "item.origin"
-              },
-              "badge": {
-                "$": "values.PENDING"
-              },
-              "schema": "VERIFY_SCHEMA",
-              "promptRole": "verify",
-              "vars": {
-                "title": {
-                  "$": "item.title"
-                },
-                "description": {
-                  "$": "item.description",
-                  "or": ""
-                }
-              },
-              "varRefs": {
-                "directive": "directive"
-              },
-              "registerPromptsOnce": {
-                "verify": {
-                  "$": "values.VERIFY_TMPL"
-                },
-                "directive": {
-                  "$": "args.directive"
-                }
-              },
-              "effort": {
-                "$": "item.effort",
-                "or": ""
-              }
-            }
-          }
-        ]
       },
       {
         "op": "publish",
@@ -357,91 +126,8 @@
           "id": "draft-review",
           "kind": "task",
           "stage": "draft-review",
-          "parent": {
-            "$": "args.chunkRef",
-            "or": "chunk"
-          },
-          "title": "완전성 합의 루프",
-          "blockedBy": [
-            {
-              "$": "itemIds"
-            }
-          ]
-        }
-      },
-      {
-        "op": "return",
-        "value": {
-          "chunkTitle": {
-            "$": "tree.title",
-            "or": ""
-          },
-          "titleOrigin": {
-            "$": "tree.titleOrigin",
-            "or": "agent"
-          }
-        }
-      }
-    ],
-    "classify": [
-      {
-        "op": "agent",
-        "prompt": "classify",
-        "schema": "CLASSIFY_SCHEMA",
-        "label": "분류",
-        "bind": "r"
-      },
-      {
-        "op": "publish",
-        "node": {
-          "id": "audit",
-          "kind": "task",
-          "stage": "audit",
-          "parent": {
-            "$": "args.chunkRef",
-            "or": "chunk"
-          },
-          "title": "완결 인증(seal)",
-          "blockedBy": []
-        }
-      },
-      {
-        "op": "return",
-        "value": {
-          "dimension": {
-            "$": "r.dimension",
-            "or": ""
-          },
-          "assignments": {
-            "$": "r.assignments",
-            "or": []
-          }
-        }
-      }
-    ],
-    "audit": [
-      {
-        "op": "agent",
-        "prompt": "audit",
-        "schema": "AUDIT_SCHEMA",
-        "label": "부모 감사",
-        "bind": "r"
-      },
-      {
-        "op": "return",
-        "value": {
-          "verdict": {
-            "$": "r.verdict",
-            "or": "(감사 결과 없음)"
-          },
-          "complete": {
-            "$": "r.complete",
-            "or": false
-          },
-          "removals": {
-            "$": "r.removals",
-            "or": []
-          }
+          "parent": "chunk",
+          "title": "완전성 합의 루프"
         }
       }
     ],
@@ -449,13 +135,12 @@
       {
         "op": "agent",
         "prompt": "draft-review",
-        "schema": "CHANGES_SCHEMA",
-        "label": "완전성 합의 루프",
+        "schema": "SPEC_SET_SCHEMA",
+        "label": "전체집합 산출",
         "bind": "a"
       },
       {
         "op": "publish",
-        "when": "a.changes",
         "node": {
           "id": "draft-review-again",
           "kind": "task",
@@ -469,26 +154,19 @@
         }
       },
       {
-        "op": "publish",
-        "unless": "a.changes",
-        "node": {
-          "id": "classify",
-          "kind": "task",
-          "stage": "classify",
-          "parent": {
-            "$": "args.chunkRef",
-            "or": "chunk"
-          },
-          "title": "진행",
-          "blockedBy": []
-        }
-      },
-      {
         "op": "return",
         "value": {
-          "changes": {
-            "$": "a.changes",
+          "requirements": {
+            "$": "a.requirements",
             "or": []
+          },
+          "removed": {
+            "$": "a.removed",
+            "or": []
+          },
+          "chunkTitle": {
+            "$": "a.chunkTitle",
+            "or": ""
           }
         }
       }

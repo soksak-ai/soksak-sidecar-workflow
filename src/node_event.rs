@@ -52,6 +52,9 @@ pub enum NodeEvent {
         badge: Option<String>,
         #[serde(skip_serializing_if = "is_false")]
         is_draft: bool,
+        // 섹션 접힘 — 자식 프레임을 접은 채 띄운다(보드 모델). 섹션 외 노드는 false 라 직렬화 생략.
+        #[serde(skip_serializing_if = "is_false")]
+        collapsed: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         parent_draft_id: Option<String>,
         // ── 라우팅 tier(자기선택): 저작이 노드 난이도로 실어 보낸다. reconcile 이 wire 를 읽어 exec 에
