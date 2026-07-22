@@ -32,7 +32,7 @@ pub struct AgentRequest<'a> {
     /// api-reference 계약(schema → forced StructuredOutput → validated object). None 이면 raw 텍스트.
     pub schema: Option<Value>,
     /// claude `--effort`(codex 는 `-c model_reasoning_effort` 로 매핑). 추론 깊이. 노드 tier 로 설정,
-    /// 미지정 경로는 DEFAULT_EFFORT(max=최고, codex 매핑 ultra)로 폴백 — 품질우선.
+    /// 미지정 경로는 DEFAULT_EFFORT(max=최고, codex 매핑 high — ultra 캡)로 폴백 — 품질우선.
     pub effort: String,
     /// true 면 **순수 텍스트 반환 계약** — 파일/실행/검색 도구를 전면 차단(--disallowedTools 로).
     /// generate-skeleton 저작에만 씀: 도구가 열려 있으면 모델이 파일을 쓰려다 실패할 수 있다(빈
@@ -480,20 +480,34 @@ fn normalize_schema_for_openai(v: &mut Value) {
 /// run_codex_once — codex exec 어댑터(claude -p 등가): 프롬프트=stdin, 스키마=--output-schema(파일),
 /// 스트림=--json(run catalog 보존), 결과=-o(최종 메시지 파일). 인증은 codex 자체 로그인(~/.codex) —
 /// ANTHROPIC env 불요. 하드캡·transient 계약은 claude 경로와 동일.
-/// 기본 reasoning effort — 미지정 시 실행자가 쓰는 값. **품질우선: 최고(claude `max`, codex 매핑 `ultra`)**.
+/// 기본 reasoning effort — 미지정 시 실행자가 쓰는 값. **품질우선: 최고(claude `max`, codex 매핑 `high` — ultra 캡)**.
 /// 라우팅은 저작 LLM 이 노드에 명시적으로 더 낮은 tier 를 실을 때만 하향한다(under-fund 방지 — 기본은 최고).
 pub const DEFAULT_EFFORT: &str = "max";
 
-/// codex_reasoning_effort — 추상 effort(우리 어휘, claude `--effort` 기준: low/medium/high/xhigh/max)를
-/// codex `model_reasoning_effort` 값으로 매핑. 두 provider 최고 tier 가 다름(claude `max` ↔ codex `ultra`)이라
-/// 최고만 정렬하고 나머지는 codex 도 수용하는 동명값(low/medium/high/xhigh)을 그대로 넘긴다. codex 는
-/// minimal/none 도 있으나 우리 어휘엔 없어 매핑 대상 아님(미지정 시 codex config 기본).
+/// codex_reasoning_effort — 추상 effort(우리 어휘: low/medium/high/xhigh/max)를 codex `model_reasoning_effort`
+/// 로 매핑하되 **`high` 를 상한으로 캡**한다. 이유: codex 의 최상위 `ultra` 는 (1) sol 계열 전용이라 경량
+/// 모델(gpt-5.4-mini 등)이 invalid_value 로 거부하고, (2) agentic tier 라 서브에이전트(collab) 스폰을
+/// 유발해 결정적 헤드리스 단발 생성엔 부적합하다(실측). `high` 는 모든 codex 모델이 수용하는 신뢰 top tier 다.
 fn codex_reasoning_effort(effort: &str) -> &str {
     match effort {
-        "max" => "ultra", // 각 provider 최고를 정렬
-        other => other,   // low/medium/high/xhigh — codex 동명 수용
+        "max" | "xhigh" | "ultra" => "high", // codex 헤드리스 상한 = high(ultra 는 sol 전용·agentic)
+        other => other,                      // low/medium/high — codex 동명 수용
     }
 }
+
+/// codex 에 넘길 `-m` 값 — 없으면 None(=-m 생략, codex config 기본 위임). codex 는 claude/GLM 티어
+/// 어휘(opus/sonnet/haiku)를 모른다(ChatGPT 계정: `400 model not supported`). 빈값·"default"·티어명은
+/// config 기본에 위임하고, **실제 codex 모델명만** 그대로 넘긴다. 프로바이더가 추상 티어를 자기 모델로 적응.
+fn codex_model_arg(model: &str) -> Option<&str> {
+    match model {
+        "" | "default" | "opus" | "sonnet" | "haiku" => None,
+        m => Some(m),
+    }
+}
+
+/// 헤드리스 단발 exec 에서 끄는 codex feature — 서브에이전트 스폰·목표추구·사용자 훅. 결정적 단발 생성
+/// 호출엔 부적합하고, multi_agent/collaboration_modes 는 --ephemeral 에서 `collab spawn failed`를 낸다.
+const CODEX_HEADLESS_DISABLE: &[&str] = &["multi_agent", "collaboration_modes", "goals", "hooks"];
 
 fn run_codex_once(req: &AgentRequest) -> Result<String, String> {
     let tmp = std::env::temp_dir().join(format!("soksak-codex-{}", std::process::id()));
@@ -511,21 +525,23 @@ fn run_codex_once(req: &AgentRequest) -> Result<String, String> {
         .arg("--json")
         .arg("--skip-git-repo-check")
         .arg("--ephemeral");
+    // 헤드리스 단발 생성 exec — codex 의 인터랙티브/에이전트 기능을 끈다. multi_agent·collaboration_modes 는
+    // 서브에이전트 스폰(collab)을 유발하는데 --ephemeral 스레드는 등록이 안 돼 `collab spawn failed: no thread
+    // with id`로 턴이 정체·실패한다(실측). goals·hooks 는 목표추구·사용자 훅으로 결정적 단발 호출에 개입한다.
+    // 전부 이 경로엔 부적합 — 끈다(=`-c features.<name>=false`).
+    for f in CODEX_HEADLESS_DISABLE {
+        cmd.arg("--disable").arg(f);
+    }
     cmd.arg("-o").arg(&out_file);
-    if !req.model.is_empty() && req.model != "default" {
-        // "default" = codex 자체 기본 모델(config) 사용 — -m 생략.
-        cmd.arg("-m").arg(req.model);
+    if let Some(m) = codex_model_arg(&req.model) {
+        cmd.arg("-m").arg(m);
     }
     // reasoning effort 배선(파리티) — claude `--effort` 와 대칭으로 codex 도 명시 전달한다. codex 는
     // `-c model_reasoning_effort=<v>` config override(STEP 0 실측: CLI 미검증). effort 어휘가 provider
-    // 마다 달라 최고를 정렬한다(claude `max` ↔ codex `ultra`). 미지정("")이면 codex config 기본에 맡김.
+    // 마다 다르다. codex 는 `high` 로 캡한다(ultra=sol 전용·agentic). 미지정("")이면 codex config 기본에 맡김.
     if !req.effort.is_empty() {
         let mapped = codex_reasoning_effort(&req.effort);
-        let m = if req.model.is_empty() || req.model == "default" {
-            "default"
-        } else {
-            req.model
-        };
+        let m = codex_model_arg(&req.model).unwrap_or("default");
         eprintln!(
             "[soksak] codex exec (model={m}, effort={}→{mapped}) via -c model_reasoning_effort",
             req.effort
@@ -986,6 +1002,32 @@ mod tests {
     #[test]
     fn parse_plain_json() {
         assert_eq!(parse_json_lenient(r#"{"a":1}"#).unwrap(), json!({"a":1}));
+    }
+
+    #[test]
+    fn codex_model_arg_delegates_claude_tiers_and_default_to_config() {
+        // codex 는 claude/GLM 티어명을 모른다(ChatGPT 계정 400) — None=-m 생략=config 기본 위임.
+        for tier in ["opus", "sonnet", "haiku", "default", ""] {
+            assert_eq!(codex_model_arg(tier), None, "{tier} 는 config 기본 위임");
+        }
+        // 실제 codex 모델명만 그대로 넘긴다.
+        assert_eq!(codex_model_arg("gpt-5.6-sol"), Some("gpt-5.6-sol"));
+    }
+
+    #[test]
+    fn codex_effort_caps_at_high_no_ultra() {
+        // ultra 는 sol 전용·agentic·경량모델 거부(gpt-5.4-mini invalid_value 실측) → 헤드리스 상한 high.
+        assert_eq!(codex_reasoning_effort("max"), "high");
+        assert_eq!(codex_reasoning_effort("xhigh"), "high");
+        assert_eq!(codex_reasoning_effort("ultra"), "high");
+        assert_eq!(codex_reasoning_effort("medium"), "medium");
+    }
+
+    #[test]
+    fn codex_headless_disables_subagent_spawn_features() {
+        // multi_agent/collaboration_modes 를 안 끄면 --ephemeral 에서 collab 스폰이 턴을 정체시킨다(실측).
+        assert!(CODEX_HEADLESS_DISABLE.contains(&"multi_agent"));
+        assert!(CODEX_HEADLESS_DISABLE.contains(&"collaboration_modes"));
     }
 
     #[test]
