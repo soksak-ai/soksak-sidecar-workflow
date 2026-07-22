@@ -1746,6 +1746,85 @@ mod tests {
         assert_eq!(origin_enum, vec!["user", "agent"], "출처 축 유지");
     }
 
+    /// [번들 정본·조립 검사] 두 독립 검증자가 찾은 결함(개념 소실 / 조건 없는 규칙 과잉단정)을 막는
+    /// **도메인-무관 method 유도** A·B 가 조립 문자열에 도달하고, 완전성 프레이밍이 유지되며, **도메인
+    /// 특정 단어가 프롬프트 템플릿에 새어들지 않았는지**. 우린 최종 산출물이 아니라 다른 AI 가 따를 지시
+    /// 계약을 만든다 — 프롬프트에 약/병원/마약 같은 도메인 사실이 들어가면 실패다. (COMMON 은 다도메인
+    /// *예시*로 method 를 가르치므로 검사 대상이 아니다 — 템플릿의 {{COMMON}} placeholder 만 본다.)
+    #[test]
+    fn assembled_draft_prompt_preserves_concepts_and_qualifies_rules() {
+        let draft: Json =
+            serde_json::from_str(include_str!("../workflows/draft.doc.json")).unwrap();
+        let args = json!({ "directive": "d", "chunkRef": "chunk", "ledger": [], "round": 1 });
+        let mut seen = String::new();
+        {
+            let mut cap = |p: &str, _s: Option<&Json>, _l: &str| {
+                seen.push_str(p);
+                Ok(json!({ "requirements": [], "removed": [] }))
+            };
+            run(&draft, "draft-review", &args, &mut cap).unwrap();
+        }
+        // (a) 개념·연산 보존 — 재해석으로 요건을 없애지 마라.
+        for (needle, why) in [
+            (
+                "PRESERVE THE REQUESTER'S OWN CONCEPTS",
+                "개념·연산 보존 원칙",
+            ),
+            ("never its EXISTENCE", "HOW 는 미뤄도 존재는 못 미룸"),
+            (
+                "reinterpretation wearing the mask of completeness",
+                "재해석≠완성",
+            ),
+        ] {
+            assert!(seen.contains(needle), "A 없음: {why}({needle:?})");
+        }
+        // (b) 규칙은 조건·예외째로 + 절대규칙 의심 + 모순 검사.
+        for (needle, why) in [
+            ("QUALIFY EVERY RULE WITH ITS SCOPE", "규칙 조건·예외 보존"),
+            ("Distrust absolutes", "절대규칙 의심"),
+            ("run a contradiction check", "집합 모순 검사"),
+        ] {
+            assert!(seen.contains(needle), "B 없음: {why}({needle:?})");
+        }
+        // (c) 완전성 프레이밍·렌즈 유지(잘리지 않음).
+        for needle in [
+            "GENERATION IS GENEROUS",
+            "cast WIDE",
+            "Sweep the lenses every round",
+        ] {
+            assert!(seen.contains(needle), "완전성/렌즈 유실: {needle:?}");
+        }
+        // (c') origin 세탁 금지 강화.
+        assert!(
+            seen.contains("Mark origin by its TRUE SOURCE"),
+            "origin 세탁 금지 강화 유실"
+        );
+        // (d) 도메인 특정 단어가 템플릿에 새어들지 않았는지 — COMMON 은 예시라 제외(placeholder 만 검사).
+        let tmpl = draft["prompts"]["draft-review"].as_str().unwrap();
+        assert!(
+            tmpl.contains("{{COMMON}}"),
+            "템플릿은 COMMON 을 placeholder 로 둔다(예시 도메인어는 여기 없음)"
+        );
+        let low = tmpl.to_lowercase();
+        for bad in [
+            "pharmac",
+            "canister",
+            "prescription",
+            "narcotic",
+            "hospital",
+            "drug",
+            "약국",
+            "마약",
+            "병원",
+            "처방",
+        ] {
+            assert!(
+                !low.contains(bad) && !tmpl.contains(bad),
+                "도메인 단어 누출({bad:?}) — 우린 지시 계약을 만들지 도메인 사실을 넣지 않는다"
+            );
+        }
+    }
+
     /// [번들 정본] 확정 문서 규약 — research/design 의 review 는 changes[] 델타를 낸다. changes 비면 다음
     /// 스테이지(수렴), 있으면 자기재발행. {{document}} 로 items(history 포함) JSON 을 읽는다.
     #[test]
