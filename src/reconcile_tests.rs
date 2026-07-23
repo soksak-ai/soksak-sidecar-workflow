@@ -1072,7 +1072,7 @@ fn changes_add_without_origin_keeps_agent_default_for_shared_points() {
     assert_eq!(f["badge"], "검수전", "research fact 는 여전히 검수 대상");
 }
 
-// ── DRAFT 전체집합 경로(whole-set) — 출력이 델타가 아니라 완전한 집합이고, 델타는 시스템이 계산한다 ──
+// ── DRAFT 마크 경로 — 모델은 add/change/remove 마크만, 시스템이 지속 문서에 적용(미언급=keep) ──
 
 // 기존 accepted 요건 2개(i0,i1)를 지닌 draft 픽스처.
 fn spec_set_fixture(round: u32) -> (Vec<Node>, Node) {
@@ -1090,24 +1090,21 @@ fn spec_set_fixture(round: u32) -> (Vec<Node>, Node) {
 }
 
 #[test]
-fn whole_set_materializes_new_kept_and_removed() {
-    // 유지(id 그대로) · 신규(id 없음) · 의도적 제거(removed) 를 시스템이 갈라 물질화한다.
+fn marks_materialize_add_and_remove() {
+    // add 마크 → 신규 프레임(Spec 밑, 태생 o). remove 마크 → x + 사유. 미언급 i0 는 손대지 않음.
     let (ns, target) = spec_set_fixture(2);
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
         json!({
-            "requirements": [
-                { "id": "i0", "title": "무한 분할", "description": "d0", "origin": "user" },
-                { "title": "크래시 복구", "description": "복구 경로", "origin": "agent", "reason": "back-side" }
-            ],
-            "removed": [{ "id": "i1", "reason": "i0 이 흡수 — 중복" }]
+            "add": [{ "text": "크래시 복구", "reason": "back-side", "origin": "agent" }],
+            "change": [],
+            "remove": [{ "id": "i1", "reason": "i0 이 흡수 — 중복" }]
         }),
     ));
     let body = target.body_str().to_string();
     let snap = d.list_nodes();
     let r = reconcile_stage(&d, &target, &body, &snap);
     assert_eq!(r["ok"], true, "{r}");
-    // 신규 = id 없는 항목만.
     let new_node = d
         .c()
         .add_find(|p| p["title"] == "크래시 복구")
@@ -1116,12 +1113,9 @@ fn whole_set_materializes_new_kept_and_removed() {
     assert_eq!(new_node["badge"], "o");
     assert_eq!(new_node["origin"], "agent");
     assert_eq!(new_node["parentId"], "spec", "Spec 섹션 밑");
-    // 유지된 i0 는 신규 발행되지 않는다(중복 금지).
-    assert!(
-        d.c().add_find(|p| p["title"] == "무한 분할").is_none(),
-        "유지 항목을 다시 발행하면 안 된다"
-    );
-    // 의도적 제거 → x + 사유.
+    // 미언급 i0 = keep — 발행도 편집도 없다(흘림 구조적 불가).
+    assert!(d.c().edit_of("i0").is_none(), "미언급 i0 는 손대지 않는다");
+    // remove → x + 사유.
     let e1 = d.c().edit_of("i1").cloned().expect("i1 제거 편집");
     assert_eq!(e1["badge"], "x");
     let res1: Value = serde_json::from_str(e1["result"].as_str().unwrap()).unwrap();
@@ -1129,59 +1123,65 @@ fn whole_set_materializes_new_kept_and_removed() {
 }
 
 #[test]
-fn whole_set_unmentioned_existing_id_fails_loud() {
-    // 누락(깜빡)과 의도적 제거를 같게 처리하면 요건이 조용히 증발한다 — 침묵 금지.
+fn unmentioned_ids_are_kept_not_dropped() {
+    // 재설계 핵심 이득 — 모델이 아무 마크도 안 달면 기존 전부 그대로 keep(흘림 구조적 불가) → 수렴.
     let (ns, target) = spec_set_fixture(2);
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
-        json!({
-            "requirements": [{ "id": "i0", "title": "무한 분할", "description": "d0" }],
-            "removed": []
-        }),
+        json!({ "add": [], "change": [], "remove": [] }),
     ));
     let body = target.body_str().to_string();
     let snap = d.list_nodes();
     let r = reconcile_stage(&d, &target, &body, &snap);
-    assert_eq!(r["ok"], false, "미언급 기존 id 는 fail-loud: {r}");
-    let msg = r["message"].as_str().unwrap();
-    assert!(msg.contains("i1"), "누락된 id 를 지목해야 한다: {msg}");
+    assert_eq!(r["ok"], true, "미언급은 위반이 아니다: {r}");
     assert!(
-        d.c().edit_of("i1").is_none() && d.c().add.is_empty(),
+        d.c().edit_of("i0").is_none() && d.c().edit_of("i1").is_none() && d.c().add.is_empty(),
+        "마크 0 → 기존 전부 그대로, 아무것도 안 건드림"
+    );
+    assert_eq!(r["adds"], 0);
+    assert_eq!(r["removes"], 0);
+}
+
+#[test]
+fn unknown_id_mark_fails_loud_and_mutates_nothing() {
+    // change/remove 의 id 가 실재하지 않으면 fail-loud — 아무것도 변형하지 않는다.
+    let (ns, target) = spec_set_fixture(2);
+    let d = FakeDeps::new(ns).stage(staged_children(
+        vec![task_ev_again()],
+        json!({ "add": [], "change": [], "remove": [{ "id": "ghost", "reason": "r" }] }),
+    ));
+    let body = target.body_str().to_string();
+    let snap = d.list_nodes();
+    let r = reconcile_stage(&d, &target, &body, &snap);
+    assert_eq!(r["ok"], false, "미지 id = fail-loud: {r}");
+    let msg = r["message"].as_str().unwrap();
+    assert!(msg.contains("ghost"), "미지 id 를 지목: {msg}");
+    assert!(
+        d.c().add.is_empty() && d.c().edit_of("i0").is_none(),
         "fail-loud 는 아무것도 변형하지 않는다"
     );
 }
 
 #[test]
-fn whole_set_identical_converges_and_certifies() {
-    // 신규 0 ∧ 제거 0 ∧ 개정 0 = 집합 동일 = 수렴. 모델의 성실성이 아니라 구조가 판정한다.
+fn no_marks_converges_and_certifies() {
+    // 마크 0 = 문서 불변 = 수렴 → chunk 인증 + 자기재발행 억제.
     let (ns, target) = spec_set_fixture(3);
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
-        json!({
-            "requirements": [
-                { "id": "i0", "title": "무한 분할", "description": "d0" },
-                { "id": "i1", "title": "사이드바 충돌 해소", "description": "d1" }
-            ],
-            "removed": []
-        }),
+        json!({ "add": [], "change": [], "remove": [] }),
     ));
     let body = target.body_str().to_string();
     let snap = d.list_nodes();
     let r = reconcile_stage(&d, &target, &body, &snap);
     assert_eq!(r["ok"], true);
     let chunk = d.c().edit_of("chunk").cloned().expect("chunk 인증");
-    assert_eq!(chunk["badge"], "o", "집합 동일 → 인증");
-    assert!(
-        d.c().add.is_empty(),
-        "수렴 라운드는 아무것도 발행하지 않는다"
-    );
+    assert_eq!(chunk["badge"], "o", "마크 0 → 인증");
     assert_eq!(r["published"], 0, "자기재발행 억제(정지)");
 }
 
 #[test]
-fn whole_set_return_exposes_add_change_remove_counts() {
-    // 라이브 관전 — tick 라인의 숫자가 유일한 관전 채널이다. whole-set 소비는 매 라운드
-    // add/change/remove 수를 반환해야 집합이 좁혀지는 걸 눈으로 본다(published=1 은 눈먼 것).
+fn marks_return_exposes_add_change_remove_counts() {
+    // 라이브 관전 — reconcile 반환에 이 라운드 적용 마크 수. 관전자는 이 3수로 수렴을 본다.
     let ns = nodes(vec![
         json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
         json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
@@ -1194,18 +1194,17 @@ fn whole_set_return_exposes_add_change_remove_counts() {
         json!({ "id": "draft-review", "kind": "task", "parentId": "chunk", "status": "todo", "blockedBy": [],
         "body": "{\"workflow\":\"draft\",\"stage\":\"draft-review\",\"args\":{\"directive\":\"d\",\"round\":2}}" }),
     );
-    // add 3(신규 X/Y/Z) · change 1(개정B) · remove 2(제거C·제거D).
+    // add 3(X/Y/Z) · change 1(B) · remove 2(C·D). 미언급 A 는 keep.
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
         json!({
-            "requirements": [
-                { "id": "i0", "title": "유지A", "description": "d" },
-                { "id": "i1", "title": "개정B(정련)", "description": "d2", "reason": "모호" },
-                { "title": "신규X", "description": "d", "reason": "누락" },
-                { "title": "신규Y", "description": "d", "reason": "누락" },
-                { "title": "신규Z", "description": "d", "reason": "누락" }
+            "add": [
+                { "text": "신규X", "reason": "누락" },
+                { "text": "신규Y", "reason": "누락" },
+                { "text": "신규Z", "reason": "누락" }
             ],
-            "removed": [
+            "change": [{ "id": "i1", "text": "개정B(정련)", "reason": "모호" }],
+            "remove": [
                 { "id": "i2", "reason": "중복" },
                 { "id": "i3", "reason": "범위밖" }
             ]
@@ -1218,18 +1217,15 @@ fn whole_set_return_exposes_add_change_remove_counts() {
     assert_eq!(r["adds"], 3, "신규 3: {r}");
     assert_eq!(r["changes"], 1, "개정 1: {r}");
     assert_eq!(r["removes"], 2, "제거 2: {r}");
+    assert!(d.c().edit_of("i0").is_none(), "미언급 A(i0) 는 keep");
 }
 
 #[test]
-fn whole_set_convergence_reports_zero_counts() {
-    // 수렴 라운드 = 세 수 모두 0 — 관전자가 "더 나올 게 없어 멈췄다"를 숫자로 확인한다.
+fn convergence_reports_zero_counts() {
     let (ns, target) = spec_set_fixture(3);
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
-        json!({ "requirements": [
-            { "id": "i0", "title": "무한 분할", "description": "d0" },
-            { "id": "i1", "title": "사이드바 충돌 해소", "description": "d1" }
-        ], "removed": [] }),
+        json!({ "add": [], "change": [], "remove": [] }),
     ));
     let body = target.body_str().to_string();
     let snap = d.list_nodes();
@@ -1241,17 +1237,15 @@ fn whole_set_convergence_reports_zero_counts() {
 }
 
 #[test]
-fn whole_set_change_is_not_convergence() {
-    // 같은 id 인데 내용이 바뀌면 개정 — 변경이므로 수렴이 아니다(다음 라운드가 돌아야 한다).
+fn change_mark_is_not_convergence() {
+    // change 마크가 있으면 수렴이 아니다 — i0 개정, 다음 라운드가 돌아야 한다.
     let (ns, target) = spec_set_fixture(2);
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
         json!({
-            "requirements": [
-                { "id": "i0", "title": "무한 분할(뼈대 고정)", "description": "d0-개정", "reason": "분할 범위가 모호해 오독됨" },
-                { "id": "i1", "title": "사이드바 충돌 해소", "description": "d1" }
-            ],
-            "removed": []
+            "add": [],
+            "change": [{ "id": "i0", "text": "무한 분할(뼈대 고정)", "reason": "분할 범위가 모호해 오독됨" }],
+            "remove": []
         }),
     ));
     let body = target.body_str().to_string();
@@ -1268,8 +1262,8 @@ fn whole_set_change_is_not_convergence() {
 }
 
 #[test]
-fn whole_set_readd_of_removed_item_stacks_history() {
-    // 제거된 항목의 id 를 다시 집합에 넣는 것도 add 다(연산은 셋뿐) — 계보가 이어진다.
+fn change_on_removed_id_readds_stacking_history() {
+    // 제거된 id 에 change 마크 → 재추가(x→o), history op=add 로 적층(계보 유지).
     let ns = nodes(vec![
         json!({ "id": "chunk", "kind": "chunk", "isDraft": true, "parentId": null, "status": "inprogress" }),
         json!({ "id": "spec", "kind": "section", "parentId": "chunk", "title": "Spec" }),
@@ -1284,18 +1278,16 @@ fn whole_set_readd_of_removed_item_stacks_history() {
     let d = FakeDeps::new(ns).stage(staged_children(
         vec![task_ev_again()],
         json!({
-            "requirements": [
-                { "id": "i0", "title": "무한 분할", "description": "d0" },
-                { "id": "ix", "title": "권한 경계", "description": "dx", "reason": "AI 실행 권한은 범위 안 — 제거 사유 반박" }
-            ],
-            "removed": []
+            "add": [],
+            "change": [{ "id": "ix", "text": "권한 경계", "reason": "AI 실행 권한은 범위 안 — 제거 사유 반박" }],
+            "remove": []
         }),
     ));
     let body = target.body_str().to_string();
     let snap = d.list_nodes();
     let r = reconcile_stage(&d, &target, &body, &snap);
     assert_eq!(r["ok"], true);
-    let ex = d.c().edit_of("ix").cloned().expect("ix reraise 편집");
+    let ex = d.c().edit_of("ix").cloned().expect("ix 재추가 편집");
     assert_eq!(ex["badge"], "o", "x→o 복원");
     let hist: Value = serde_json::from_str(ex["result"].as_str().unwrap()).unwrap();
     assert_eq!(

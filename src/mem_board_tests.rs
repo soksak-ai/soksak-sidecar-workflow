@@ -14,20 +14,20 @@ fn task_ev(id: &str, stage: &str, parent: &str) -> Value {
     json!({ "id": id, "kind": "task", "stage": stage, "parent": parent, "title": stage, "blocked_by": [] })
 }
 
-/// 한 라운드가 집합에 가하는 조작. 그 밖의 기존 항목은 원문 그대로 실린다(유지).
+/// 한 라운드가 다는 마크. 미언급 기존 항목은 그대로 keep(마크 모델의 핵심 — 흘림 구조적 불가).
 #[derive(Clone)]
 enum Step {
     Add(&'static str),
+    /// 기존 title 의 항목을 remove 마크.
     Remove(&'static str),
+    /// 기존 title 의 항목을 새 텍스트로 change 마크.
     Change(&'static str, &'static str),
-    /// 기존 항목 하나를 아예 빼먹는다 — 의도적 제거가 아닌 증발(fail-loud 대상).
-    Omit(&'static str),
 }
 
-/// 결정적 mock provider — LLM 미호출. 문서(args.ledger)를 읽어 전체 집합을 재산출한다.
+/// 결정적 mock provider — LLM 미호출. 지속 문서(args.ledger)를 읽어 title→id 를 해소하고 마크만 낸다.
 struct MockExec {
     rounds: Vec<Vec<Step>>,
-    /// true 면 매 라운드 새 항목을 하나씩 더해 절대 수렴하지 않는다(상한 봉인 검증).
+    /// true 면 매 라운드 새 항목을 하나씩 add 마크해 절대 수렴하지 않는다(상한 봉인 검증).
     never_converge: bool,
     calls: RefCell<Vec<String>>,
 }
@@ -80,21 +80,20 @@ impl Exec for MockExec {
             return Err(format!("mock: 미지 stage {stage:?} — DRAFT 는 단일 op"));
         }
 
-        // 현재 문서 — round-1 은 ∅.
+        // 지속 문서(state o 인 것)에서 title→id 해소. round-1 은 ∅.
         let doc = v
             .pointer("/args/ledger")
             .and_then(|l| l.as_array())
             .cloned()
             .unwrap_or_default();
-        // 유지 후보 = 현재 집합에 있는 것(state o)을 id·원문 그대로.
-        let mut reqs: Vec<Value> = doc
-            .iter()
-            .filter(|e| e.get("state").and_then(|s| s.as_str()) != Some("x"))
-            .map(|e| json!({ "id": e["id"], "title": e["title"], "description": e["description"] }))
-            .collect();
-        let mut removed: Vec<Value> = vec![];
-        let idx_of =
-            |reqs: &Vec<Value>, t: &str| reqs.iter().position(|r| r["title"].as_str() == Some(t));
+        let id_of = |t: &str| -> Option<String> {
+            doc.iter()
+                .find(|e| {
+                    e.get("state").and_then(|s| s.as_str()) != Some("x")
+                        && e.get("title").and_then(|x| x.as_str()) == Some(t)
+                })
+                .and_then(|e| e.get("id").and_then(|i| i.as_str()).map(String::from))
+        };
 
         let steps: Vec<Step> = if self.never_converge {
             vec![Step::Add("끝없는 요건")]
@@ -104,28 +103,22 @@ impl Exec for MockExec {
                 .cloned()
                 .unwrap_or_default()
         };
+        let (mut add, mut change, mut remove) = (vec![], vec![], vec![]);
         for st in &steps {
             match st {
-                Step::Add(t) => reqs.push(json!({
-                    "title": t, "description": format!("{t} 설명"),
-                    "origin": "agent", "reason": format!("{t} 는 누락된 make-or-break")
+                Step::Add(t) => add.push(json!({
+                    "text": t, "origin": "agent", "reason": format!("{t} 는 누락된 make-or-break")
                 })),
                 Step::Remove(t) => {
-                    if let Some(i) = idx_of(&reqs, t) {
-                        let id = reqs[i]["id"].clone();
-                        reqs.remove(i);
-                        removed.push(json!({ "id": id, "reason": format!("{t} 는 중복") }));
+                    if let Some(id) = id_of(t) {
+                        remove.push(json!({ "id": id, "reason": format!("{t} 는 중복") }));
                     }
                 }
                 Step::Change(from, to) => {
-                    if let Some(i) = idx_of(&reqs, from) {
-                        reqs[i]["title"] = json!(to);
-                        reqs[i]["reason"] = json!("문구가 모호해 오독됨");
-                    }
-                }
-                Step::Omit(t) => {
-                    if let Some(i) = idx_of(&reqs, t) {
-                        reqs.remove(i); // removed 에 넣지 않는다 — 증발.
+                    if let Some(id) = id_of(from) {
+                        change.push(
+                            json!({ "id": id, "text": to, "reason": "문구가 모호해 오독됨" }),
+                        );
                     }
                 }
             }
@@ -133,7 +126,7 @@ impl Exec for MockExec {
 
         Ok(StageOut::Children {
             children: vec![task_ev("draft-review-again", "draft-review", &chunk_ref)],
-            result: json!({ "requirements": reqs, "removed": removed }),
+            result: json!({ "add": add, "change": change, "remove": remove }),
         })
     }
 }
@@ -389,27 +382,32 @@ fn change_preserves_the_node_and_stacks_history() {
     assert_eq!(ops, vec!["add", "change"], "history 적층(덮어쓰기 0)");
 }
 
-// (d) 미언급 기존 요건 = 증발 → fail-loud. 의도적 제거와 절대 같게 처리하지 않는다.
+// (d) 재설계 핵심 이득 — 언급 안 한 기존 요건은 그대로 keep. 흘림이 구조적으로 불가능하다.
+// 약한 모델이 40개 중 하나만 손대고 나머지를 "옮겨적기"로 흘리던 결함을 원천 봉쇄.
 #[test]
-fn omitting_an_existing_requirement_fails_loud() {
+fn unmentioned_requirements_survive_untouched() {
+    // r1: 3개 생성. r2: 하나만 remove(나머지 2개는 언급조차 안 함). r3: 마크 0 → 수렴.
     let (board, report) = run_rounds(vec![
-        vec![Step::Add("무한 분할"), Step::Add("사이드바 충돌 해소")],
-        vec![Step::Omit("무한 분할")],
+        vec![
+            Step::Add("무한 분할"),
+            Step::Add("사이드바 충돌 해소"),
+            Step::Add("파일트리"),
+        ],
+        vec![Step::Remove("파일트리")],
+        vec![],
     ]);
-    let aborted = report.aborted.expect("증발은 중단시켜야 한다");
-    assert!(
-        aborted.contains("미언급"),
-        "누락을 지목해야 한다: {aborted}"
-    );
-    // 증발 시도는 아무것도 바꾸지 못한다 — 두 요건 모두 o 로 살아 있다.
+    assert!(report.aborted.is_none(), "{:?}", report.aborted);
+    // 언급 안 한 두 개는 o 로 그대로, remove 한 하나만 x — 흘린 것 없음.
     assert_eq!(
         items(&board),
         vec![
             ("무한 분할".to_string(), "o".to_string()),
             ("사이드바 충돌 해소".to_string(), "o".to_string()),
-        ]
+            ("파일트리".to_string(), "x".to_string()),
+        ],
+        "미언급=keep — 손대지 않은 요건은 그대로 살아 있다"
     );
-    assert!(!report.converged, "위반 라운드는 인증하지 않는다");
+    assert!(report.converged, "r3 마크 0 → 수렴");
 }
 
 // (e) 상한 봉인 — 절대 수렴하지 않으면 chunk badge=f(인증 아님).

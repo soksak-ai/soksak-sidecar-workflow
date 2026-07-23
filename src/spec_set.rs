@@ -1,26 +1,27 @@
-//! spec_set — DRAFT 전용 전체집합(whole-set) 산출의 델타 계산(순수).
+//! spec_set — DRAFT 전용 **마크 적용**(순수). 모델은 지속 문서(요건 집합, 안정 id)를 **입력으로 읽고**
+//! 출력은 **마크만** 단다: add / change / remove. 시스템이 그 마크를 문서에 적용한다.
 //!
-//! **왜 델타가 아니라 전체집합인가.** 모델에게 `changes[]` 를 요구하면 편집 모드(최소 개입)로 들어가
-//! 구조적으로 인색해진다(실측: round 1 이 요건 1개만 냄). 출력이 집합 전체면 조금씩 흘릴 수가 없다.
-//! 수렴 판정도 행동에서 구조로 바뀐다 — "빈 배열"(게을러졌는지 의견이 없는지 구분 불가) 대신
-//! **새로 생성한 전체 ≡ 기존 전체** 라는 집합 동일성으로 판정하므로 모델의 성실성에 기대지 않는다.
+//! **왜 전체 재출력이 아니라 마크인가.** 전에는 모델에게 집합 전체를 매 라운드 재출력하게 했는데(옮겨적기),
+//! 약한 모델이 기존 40개를 옮기다 흘렸다(실측). 근원은 옮겨적기다. 마크 모델에선 **미언급 기존 id = 그대로
+//! keep** — 모델이 다시 안 쓰니 "기존을 흘림"이 **구조적으로 불가능**하다. 이게 이 재설계의 핵심 이득.
+//! 출력은 마크지만 *추론*은 여전히 whole-set(저자가 전체를 읽고 이번 라운드에 더할·고칠·뺄 것을 다 마크)
+//! 이라 drip(편집자 모드로 인색해짐)은 프롬프트가 막는다.
 //!
-//! **연산은 정확히 셋: add / change / remove.** 그 밖은 없다. 제거된 항목을 다시 넣는 것도 `add` 다
-//! (계보: r1 add → r3 remove → r5 add).
+//! **연산은 정확히 셋: add / change / remove.** 제거된 항목을 다시 넣는 것도 그 id 에 change 를 걸면 된다
+//! (x→o, history op=add 로 기록 — 계보: r1 add → r3 remove → r5 add).
 //!
-//! **history 가 진실, state 는 투영.** history 는 append-only 이며 어떤 항목도 덮어쓰지 않는다.
-//! 현재 title/description/badge 는 그 history 를 지금 시점으로 접은 결과일 뿐 기록 자체가 아니다.
-//! 그래서 [`fold`] 로 되접으면 현재 상태가 정확히 재구성되어야 한다 — 재구성이 안 되면 어딘가에서
-//! 기록 없이 상태를 만진 것이고, 그것이 곧 무성 증발이다.
+//! **history 가 진실, state 는 투영.** history 는 append-only. 현재 title/badge 는 그 history 를 접은
+//! 결과일 뿐이라 [`fold`] 로 되접으면 현재 상태가 정확히 재구성되어야 한다 — 마크는 history 에 append 되므로
+//! 재구성 가능성이 유지된다.
 //!
-//! **근거가 검증 기제 전부다.** 격리 per-item 검증을 없애며 잃은 "프레임별 검증 코멘트"를 add 근거가
-//! 대체한다 — 조각만 보고 사후에 붙이던 코멘트가, 전체 맥락에서 그 요건을 넣기로 한 이유로 바뀐다.
-//! 그래서 근거 누락은 기본값으로 메우지 않고 fail-loud 로 막는다.
+//! **근거가 검증 기제 전부다.** add·change·remove 는 reason 필수(무근거 잡음 금지 = fail-loud). change/remove
+//! 의 id 가 실재하지 않아도 fail-loud. **미언급=keep 이므로 "미언급=누락 위반" 체크는 없다**(그게 흘림 불가를
+//! 성립시킨다).
 //!
 //! consensus.rs(공유 코어)는 research/design 이 쓰므로 건드리지 않는다 — 이 경로가 독립으로 같은 규율을 만든다.
 
-use serde_json::{json, Map, Value};
-use std::collections::HashSet;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
 /// 기존 프레임 1건의 편집 — 상태 전이와 누적된 전체 history.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,14 +35,18 @@ pub struct SpecEdit {
     pub history: Vec<Value>,
 }
 
-/// 전체집합 산출 → 시스템이 계산한 델타.
+/// 마크 적용 결과 — 시스템이 문서에 반영할 신규/편집 + 관측 카운트.
 #[derive(Debug, Default)]
 pub struct SpecSetPlan {
     /// 신규 발행 프레임 — {title, description, origin?, history:[add 엔트리]}.
     pub creates: Vec<Value>,
     pub edits: Vec<SpecEdit>,
-    /// add 0 ∧ change 0 ∧ remove 0 — 집합이 그대로면 수렴.
+    /// 마크 0(add·change·remove 전부 없음) — 문서 불변 → 수렴.
     pub converged: bool,
+    /// 관측 채널(라이브 뷰) — 이 라운드에 실제 적용된 마크 수. 재추가는 add 로 계수.
+    pub adds: usize,
+    pub changes: usize,
+    pub removes: usize,
     /// fail-loud 사유. 비어 있지 않으면 호출부는 **아무것도 변형하지 말고** 에러를 올린다.
     pub violations: Vec<String>,
 }
@@ -114,171 +119,156 @@ fn prior_history(item: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// plan — current(문서: [{id,state,title,description,history}])와 모델의 전체집합 산출을 대조해
-/// add/change/remove 와 수렴을 계산한다.
+/// plan — 지속 문서 current([{id,state,title,description,history}])에 모델의 마크(result 의 add/change/
+/// remove)를 적용한다. **미언급 기존 id 는 손대지 않는다(=keep)** — 그래서 흘림이 구조적으로 불가능하다.
 ///
-/// 근거 규칙: add·change·remove 는 reason 필수(빈 문자열 불가). 유지(내용 동일)만 면제 — 추가 시점
-/// 근거가 history 에 남아 id 로 승계되므로 매 라운드 재서술은 스퓨리어스 diff 다.
+/// fail-loud: add/change/remove 는 reason 필수, change/remove 의 id 는 실재해야 한다. 위반이 하나라도
+/// 있으면 호출부가 아무것도 변형하지 않고 에러를 올린다(부분 적용 금지).
 pub fn plan(current: &[Value], result: &Value, round: u32) -> SpecSetPlan {
     let mut out = SpecSetPlan::default();
-    let by_id: Map<String, Value> = current
+    let by_id: HashMap<String, &Value> = current
         .iter()
         .filter_map(|it| {
             it.get("id")
                 .and_then(|v| v.as_str())
-                .map(|id| (id.to_string(), it.clone()))
+                .map(|id| (id.to_string(), it))
         })
         .collect();
 
-    let Some(reqs) = result.get("requirements").and_then(|r| r.as_array()) else {
-        out.violations
-            .push("전체집합 산출에 requirements 배열이 없다".into());
-        return out;
-    };
-
-    let mut mentioned: HashSet<String> = HashSet::new();
-
-    for (i, req) in reqs.iter().enumerate() {
-        let id = s(req, "id");
-        let title = s(req, "title");
-        let description = s(req, "description");
-        let reason = s(req, "reason");
-        if title.is_empty() {
-            out.violations
-                .push(format!("requirements[{i}]: title 없음"));
+    // ── add: 신규 요건. text·reason 필수. origin 있으면 통과(user|agent 만). ──
+    for (i, a) in result
+        .get("add")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let text = s(a, "text");
+        let reason = s(a, "reason");
+        if text.is_empty() {
+            out.violations.push(format!("add[{i}]: text 없음"));
             continue;
-        }
-        if id.is_empty() {
-            // 신규 add — 근거 필수. 최초 라운드(∅→전체)도 면제 없다. 오히려 전부 add 라 전부 근거가 필요하다.
-            if reason.is_empty() {
-                out.violations.push(format!(
-                    "신규 요건 \"{title}\": 근거(reason) 없음 — 근거 없는 항목은 아무도 책임지지 않는 주장이다"
-                ));
-                continue;
-            }
-            let mut item = json!({
-                "title": title,
-                "description": description,
-                "history": [json!({ "round": round, "op": "add", "reason": reason,
-                                    "title": title, "description": description })],
-            });
-            let origin = s(req, "origin");
-            if matches!(origin.as_str(), "user" | "agent") {
-                item["origin"] = json!(origin);
-            }
-            out.creates.push(item);
-            continue;
-        }
-        mentioned.insert(id.clone());
-        let Some(cur) = by_id.get(&id) else {
-            // 존재하지 않는 id — 조용히 신규로 흘리면 계보가 위조된다.
-            out.violations.push(format!(
-                "requirements[{i}]: 미지 id \"{id}\" — 기존 집합에 없다(신규면 id 를 비워라)"
-            ));
-            continue;
-        };
-        let cur_state = cur.get("state").and_then(|v| v.as_str()).unwrap_or("o");
-        let cur_title = s(cur, "title");
-        let cur_desc = s(cur, "description");
-        if cur_state == "x" {
-            // 제거된 것을 다시 넣는 것도 add 다(계보: add → remove → add). 제거 사유를 반박하는 근거 필수.
-            if reason.is_empty() {
-                out.violations.push(format!(
-                    "재추가 \"{title}\"(id {id}): 근거 없음 — 이전 제거 사유를 반박하는 근거가 필요하다"
-                ));
-                continue;
-            }
-            let mut history = prior_history(cur);
-            history.push(json!({ "round": round, "op": "add", "reason": reason,
-                                 "title": title, "description": description }));
-            out.edits.push(SpecEdit {
-                id,
-                state: "o".into(),
-                title: (title != cur_title).then_some(title),
-                description: (description != cur_desc).then_some(description),
-                history,
-            });
-            continue;
-        }
-        // 유지 또는 change(문장·맥락 교정 — id·history 를 유지한 채 하는 일급 연산).
-        let changed = title != cur_title || description != cur_desc;
-        if !changed {
-            continue; // 원문 유지 — 근거 재서술 불필요(추가 시점 근거를 id 로 승계).
         }
         if reason.is_empty() {
             out.violations.push(format!(
-                "change \"{cur_title}\"(id {id}): 근거 없음 — 근거를 못 대는 재서술은 개정이 아니라 잡음이다"
+                "add[{i}] \"{text}\": 근거(reason) 없음 — 근거 없는 항목은 아무도 책임지지 않는 주장이다"
             ));
             continue;
         }
-        let mut entry = json!({ "round": round, "op": "change", "reason": reason });
-        if title != cur_title {
-            entry["title"] = json!(title);
-        }
-        if description != cur_desc {
-            entry["description"] = json!(description);
-        }
-        let mut history = prior_history(cur);
-        history.push(entry);
-        out.edits.push(SpecEdit {
-            id,
-            state: "o".into(),
-            title: (title != cur_title).then_some(title),
-            description: (description != cur_desc).then_some(description),
-            history,
+        let mut item = json!({
+            "title": text,
+            "description": "",
+            "history": [json!({ "round": round, "op": "add", "reason": reason, "title": text })],
         });
+        let origin = s(a, "origin");
+        if matches!(origin.as_str(), "user" | "agent") {
+            item["origin"] = json!(origin);
+        }
+        out.creates.push(item);
+        out.adds += 1;
     }
 
-    // 의도적 remove — 사유 필수.
-    if let Some(rem) = result.get("removed").and_then(|r| r.as_array()) {
-        for (i, r) in rem.iter().enumerate() {
-            let id = s(r, "id");
-            let reason = s(r, "reason");
-            if id.is_empty() {
-                out.violations.push(format!("removed[{i}]: id 없음"));
-                continue;
-            }
-            mentioned.insert(id.clone());
-            if reason.is_empty() {
-                out.violations.push(format!(
-                    "removed[{i}](id {id}): 사유 없음 — 뺀 것인지 흘린 것인지 구분되지 않는다"
-                ));
-                continue;
-            }
-            let Some(cur) = by_id.get(&id) else { continue };
-            if cur.get("state").and_then(|v| v.as_str()) == Some("x") {
-                continue; // 이미 제거됨 — 멱등.
-            }
-            let mut history = prior_history(cur);
-            history.push(json!({ "round": round, "op": "remove", "reason": reason }));
+    // ── change: 기존 id 의 텍스트 교체. id 실재·reason 필수. x 상태 id 면 재추가(x→o, history op=add). ──
+    for (i, c) in result
+        .get("change")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let id = s(c, "id");
+        let text = s(c, "text");
+        let reason = s(c, "reason");
+        if id.is_empty() || text.is_empty() {
+            out.violations
+                .push(format!("change[{i}]: id 또는 text 없음"));
+            continue;
+        }
+        let Some(cur) = by_id.get(&id) else {
+            out.violations.push(format!(
+                "change[{i}]: 미지 id \"{id}\" — 지속 문서에 없다(신규면 add 로)"
+            ));
+            continue;
+        };
+        if reason.is_empty() {
+            out.violations.push(format!(
+                "change[{i}](id {id}): 근거 없음 — 근거를 못 대는 교체는 잡음이다"
+            ));
+            continue;
+        }
+        let cur_state = cur.get("state").and_then(|v| v.as_str()).unwrap_or("o");
+        let cur_title = s(cur, "title");
+        let mut history = prior_history(cur);
+        if cur_state == "x" {
+            // 재추가 — x→o. fold 가 o 로 되접도록 history op=add.
+            history.push(json!({ "round": round, "op": "add", "reason": reason, "title": text }));
             out.edits.push(SpecEdit {
                 id,
-                state: "x".into(),
-                title: None,
+                state: "o".into(),
+                title: Some(text),
                 description: None,
                 history,
             });
+            out.adds += 1;
+        } else {
+            // 텍스트 동일이면 무-op(keep) — 스퓨리어스 diff 로 수렴을 막지 않는다.
+            if text == cur_title {
+                continue;
+            }
+            history
+                .push(json!({ "round": round, "op": "change", "reason": reason, "title": text }));
+            out.edits.push(SpecEdit {
+                id,
+                state: "o".into(),
+                title: Some(text),
+                description: None,
+                history,
+            });
+            out.changes += 1;
         }
     }
 
-    // 미언급 기존 항목 — 누락(깜빡)과 의도적 제거를 같게 처리하면 요건이 조용히 증발한다.
-    let mut missing: Vec<String> = by_id
-        .iter()
-        .filter(|(id, it)| {
-            it.get("state").and_then(|v| v.as_str()).unwrap_or("o") == "o"
-                && !mentioned.contains(*id)
-        })
-        .map(|(id, _)| id.clone())
-        .collect();
-    missing.sort();
-    if !missing.is_empty() {
-        out.violations.push(format!(
-            "전체집합 산출에서 기존 요건 {}건 미언급: [{}] — 유지면 그대로 싣고, 뺄 것이면 removed 에 사유와 함께 명시하라",
-            missing.len(),
-            missing.join(", ")
-        ));
+    // ── remove: 기존 id 를 x 로. id 실재·reason 필수. 이미 x 면 멱등 skip. ──
+    for (i, r) in result
+        .get("remove")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let id = s(r, "id");
+        let reason = s(r, "reason");
+        if id.is_empty() {
+            out.violations.push(format!("remove[{i}]: id 없음"));
+            continue;
+        }
+        let Some(cur) = by_id.get(&id) else {
+            out.violations
+                .push(format!("remove[{i}]: 미지 id \"{id}\" — 지속 문서에 없다"));
+            continue;
+        };
+        if reason.is_empty() {
+            out.violations.push(format!(
+                "remove[{i}](id {id}): 사유 없음 — 뺀 것인지 흘린 것인지 구분되지 않는다"
+            ));
+            continue;
+        }
+        if cur.get("state").and_then(|v| v.as_str()) == Some("x") {
+            continue; // 이미 제거됨 — 멱등.
+        }
+        let mut history = prior_history(cur);
+        history.push(json!({ "round": round, "op": "remove", "reason": reason }));
+        out.edits.push(SpecEdit {
+            id,
+            state: "x".into(),
+            title: None,
+            description: None,
+            history,
+        });
+        out.removes += 1;
     }
 
+    // 미언급 기존 id = keep(손대지 않음) — 흘림 구조적 불가. "미언급=누락" 체크는 없다.
     out.converged = out.creates.is_empty() && out.edits.is_empty();
     out
 }

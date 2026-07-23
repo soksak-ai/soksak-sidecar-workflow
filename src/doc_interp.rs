@@ -1662,17 +1662,18 @@ mod tests {
         {
             let mut cap = |p: &str, _s: Option<&Json>, _l: &str| {
                 seen.push_str(p);
-                Ok(json!({ "requirements": [], "removed": [] }))
+                Ok(json!({ "add": [], "change": [], "remove": [] }))
             };
             run(&draft, "draft-review", &args, &mut cap).unwrap();
         }
         let must = [
-            // (a) 델타가 아니라 전체집합을 산출하라 — 드립이 구조적으로 불가능해진다.
+            // (a) 출력은 마크(전체 재출력 아님) — 옮겨적기 흘림이 구조적으로 불가능해진다.
             (
-                "producing the complete requirement set",
-                "전체집합 산출 지시",
+                "THE DOCUMENT IS HELD FOR YOU BY THE SYSTEM",
+                "지속 문서=시스템 보유",
             ),
-            ("you describe the SET", "델타 아님 명시"),
+            ("your OUTPUT is only the MARKS", "출력=마크만"),
+            ("AN ITEM YOU DO NOT MARK IS KEPT", "미언급=keep"),
             // (b) 빈 집합 라운드 = 전체 스펙 생성 + 관대한(무경계) 발굴.
             ("WHEN THE CURRENT SET IS EMPTY", "round-1 전면 생성"),
             ("GENERATION IS GENEROUS", "관대한 생성"),
@@ -1686,23 +1687,23 @@ mod tests {
             ),
             // (d) 렌즈를 매 라운드 능동 발굴(게이트 아님).
             ("Sweep the lenses every round", "능동 렌즈 sweep"),
-            // (e) 세 연산과 근거 의무 — 근거가 검증 기제 전부다.
+            // (e) 마크 근거 의무 — 근거가 검증 기제 전부다.
             ("IS THE VERIFICATION", "근거=검증 기제"),
             (
                 "no exemption for the opening round",
                 "최초 라운드 근거 면제 없음",
             ),
-            ("MUST BE ACCOUNTED FOR", "미언급 증발 금지"),
-            ("Silence is not a decision.", "침묵 금지"),
+            // (f) drip 방지 — 정당화 가능한 마크를 아껴 미루지 마라.
+            ("drip delays convergence", "drip 방지"),
             ("first-class, welcome operation", "change 는 정상 작업"),
-            ("cannot justify is not a revision", "근거 없는 재서술 억제"),
+            ("cannot justify is not a revision", "근거 없는 교체 억제"),
             (
                 "directly refutes the removal reason",
                 "재추가는 제거사유 반박",
             ),
-            // (f) 수렴은 구조(집합 동일)다.
+            // (g) 수렴은 구조(마크 0)다.
             ("CONVERGENCE IS STRUCTURAL", "수렴=구조적 판정"),
-            // (g) 생성 렌즈가 COMMON 주입으로 실제 도달했는가.
+            // (h) 생성 렌즈가 COMMON 주입으로 실제 도달했는가.
             ("THE BACK-SIDE", "back-side 렌즈"),
             ("THE ACTORS", "actor 렌즈"),
             ("OPERATING SURFACES", "운영 표면 렌즈"),
@@ -1727,17 +1728,35 @@ mod tests {
                 "유경계 문구 잔존({banned:?}) — 완전성이 다시 잘려 있다"
             );
         }
-        // 스키마가 그 산출을 받을 수 있어야 한다.
+        // 마크 스키마가 산출을 받을 수 있어야 한다 — add/change/remove + 필수 필드.
         let props = &draft["values"]["SPEC_SET_SCHEMA"]["properties"];
-        assert!(props["requirements"].is_object() && props["removed"].is_object());
-        let rem_req: Vec<&str> = props["removed"]["items"]["required"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|x| x.as_str())
-            .collect();
-        assert!(rem_req.contains(&"reason"), "제거 사유는 스키마 필수");
-        let origin_enum: Vec<&str> = props["requirements"]["items"]["properties"]["origin"]["enum"]
+        assert!(
+            props["add"].is_object() && props["change"].is_object() && props["remove"].is_object(),
+            "마크 스키마 = add/change/remove"
+        );
+        let req_of = |k: &str| -> Vec<String> {
+            props[k]["items"]["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        };
+        assert!(
+            req_of("add").contains(&"reason".to_string()),
+            "add 근거 필수"
+        );
+        assert!(
+            req_of("change").contains(&"id".to_string())
+                && req_of("change").contains(&"reason".to_string()),
+            "change 는 id·근거 필수"
+        );
+        assert!(
+            req_of("remove").contains(&"id".to_string())
+                && req_of("remove").contains(&"reason".to_string()),
+            "remove 는 id·사유 필수"
+        );
+        let origin_enum: Vec<&str> = props["add"]["items"]["properties"]["origin"]["enum"]
             .as_array()
             .unwrap()
             .iter()
@@ -1799,6 +1818,32 @@ mod tests {
             seen.contains("Mark origin by its TRUE SOURCE"),
             "origin 세탁 금지 강화 유실"
         );
+        // (c'') 근거 이진 원리 — 원천 대조 확인 또는 제거(표시-후-존치 없음). 검증자 v2 결함(수치 지어냄·
+        // origin 느낌 단정)의 근원을 닫는다.
+        for (needle, why) in [
+            (
+                "this is binary, there is no mark-it-and-keep-it",
+                "이진(표시-후-존치 없음)",
+            ),
+            (
+                "REMOVE that value rather than state it",
+                "외부 특정수치=검색확인 또는 제거",
+            ),
+            (
+                "asserted from memory is not a cautious guess, it is fabrication",
+                "미검증 수치=fabrication",
+            ),
+            (
+                "The SAME binary governs `origin`",
+                "origin 도 같은 이진(원천=directive)",
+            ),
+            (
+                "if the words are not in the directive, it is `agent`",
+                "원문 없으면 agent",
+            ),
+        ] {
+            assert!(seen.contains(needle), "이진 원리 없음: {why}({needle:?})");
+        }
         // (d) 도메인 특정 단어가 템플릿에 새어들지 않았는지 — COMMON 은 예시라 제외(placeholder 만 검사).
         let tmpl = draft["prompts"]["draft-review"].as_str().unwrap();
         assert!(

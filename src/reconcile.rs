@@ -1073,23 +1073,27 @@ fn consume_stage_output(
             let round = read_round(body);
             let res = &result;
 
-            // ── DRAFT 전체집합 경로 — 출력이 델타가 아니라 완전한 집합이고, 델타는 시스템이 계산한다.
-            // 위반(근거 누락·미언급 증발·미지 id)이면 **아무것도 변형하지 않고** 에러를 올린다(fail-loud).
+            // ── DRAFT 마크 경로 — 모델은 add/change/remove 마크만 달고, 시스템이 지속 문서에 적용한다.
+            // 미언급 기존 id = keep(흘림 구조적 불가). 위반(무근거·미지 id)이면 **아무것도 변형하지 않고**
+            // 에러를 올린다(fail-loud). 마크 키(add/change/remove)가 하나라도 있으면 이 경로.
             let mut spec_plan: Option<crate::spec_set::SpecSetPlan> = None;
             if let (Some(spec), Some(chunk)) =
                 (consensus_spec(stage_name), target.parent_id.as_deref())
             {
-                if spec.whole_set && res.get("requirements").is_some() {
+                let has_marks = ["add", "change", "remove"]
+                    .iter()
+                    .any(|k| res.get(*k).is_some());
+                if spec.whole_set && has_marks {
                     let doc = build_consensus_document(&deps.list_nodes(), chunk, &spec);
                     let p = crate::spec_set::plan(&doc, res, round);
                     if !p.violations.is_empty() {
                         return json!({ "ok": false, "processed": 0, "id": target.id, "code": "VALIDATION_FAILED",
-                            "message": format!("전체집합 산출 위반 {}건: {}", p.violations.len(), p.violations.join(" / ")) });
+                            "message": format!("마크 적용 위반 {}건: {}", p.violations.len(), p.violations.join(" / ")) });
                     }
                     spec_plan = Some(p);
                 }
             }
-            // 집합이 그대로면(수렴) 자기재발행을 억제해 루프를 멈춘다 — 정지가 곧 인증이다.
+            // 마크 0(문서 불변)이면 자기재발행을 억제해 루프를 멈춘다 — 정지가 곧 인증이다.
             let whole_set_converged = spec_plan.as_ref().map(|p| p.converged).unwrap_or(false);
             // 상한 도달로 자기재발행을 봉인했는가 — 봉인 시 chunk 를 badge=f 로 확정하고 루프를 멈춘다.
             let mut sealed = false;
@@ -1232,12 +1236,10 @@ fn consume_stage_output(
                             "result": format!("합의 수렴(round {round}) — 새로 산출한 전체 집합이 기존 집합과 동일") }),
                     );
                 }
-                // 라이브 관전 채널 — 이 라운드가 집합을 얼마나 좁혔나. remove=state x 로 전이한 edit,
-                // change=o 유지한 edit(개정), add=신규. 관전자는 이 3수로 수렴을 눈으로 본다.
-                let removes = plan.edits.iter().filter(|e| e.state == "x").count();
-                delta = Some((plan.creates.len(), plan.edits.len() - removes, removes));
-                // published 는 그대로 doc children(자기재발행 지시자: 1=루프 계속, 0=수렴·정지) 의미를
-                // 유지한다. 물질화 가시성은 add/change/remove 3수가 전담한다.
+                // 라이브 관전 채널 — 이 라운드에 적용한 마크 수(plan 이 계수). 관전자는 이 3수로 집합이
+                // 얼마나 좁혀지고 수렴하는지 눈으로 본다. published 는 doc children(자기재발행 지시자)
+                // 의미를 유지하고, 물질화 가시성은 add/change/remove 3수가 전담한다.
+                delta = Some((plan.adds, plan.changes, plan.removes));
             }
             // 합의 changes 물질화 — reviewer changes[{op,id?,title?,description?,reason}] 를 현재 프레임에 적용한다.
             // add→검수전(또는 태생-o) 프레임 신규(올바른 섹션 밑), remove:o→x, reraise:x→o + history 누적(result JSON).
